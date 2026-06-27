@@ -154,6 +154,7 @@ func (s *providerBackedSession) forwardEvents() {
 	}
 
 	providerEvents := s.provider.Events()
+	mapper := newEventMapper(s.output)
 	for {
 		select {
 		case <-s.done:
@@ -165,8 +166,10 @@ func (s *providerBackedSession) forwardEvents() {
 			}
 
 			next, shouldFinish := s.applyProviderEvent(event)
-			if !s.emit(providerEventToEvent(event)) {
-				return
+			for _, mappedEvent := range mapper.convert(event) {
+				if !s.emit(mappedEvent) {
+					return
+				}
 			}
 
 			if next != nil {
@@ -319,58 +322,24 @@ func (s *providerBackedSession) markClosed() {
 	s.state = SessionStateClosed
 }
 
-func providerEventsToEvents(providerEvents <-chan *ProviderEvent) <-chan *Event {
+func providerEventsToEvents(providerEvents <-chan *ProviderEvent, output audio.OutputConfig) <-chan *Event {
 	events := make(chan *Event, defaultEventBufferSize)
 	go func() {
 		defer close(events)
 		if providerEvents == nil {
 			return
 		}
+		mapper := newEventMapper(output)
 		for event := range providerEvents {
-			events <- providerEventToEvent(event)
+			for _, mappedEvent := range mapper.convert(event) {
+				events <- mappedEvent
+			}
 			if event != nil && event.Type == ProviderEventSessionEnd {
 				return
 			}
 		}
 	}()
 	return events
-}
-
-func providerEventToEvent(event *ProviderEvent) *Event {
-	if event == nil {
-		return &Event{
-			Type:  EventError,
-			Error: internalError("provider event is nil"),
-		}
-	}
-
-	ttsEvent := &Event{
-		RequestID: event.RequestID,
-		SessionID: event.SessionID,
-		SegmentID: event.SegmentID,
-		Meta:      event.RawMeta,
-		Error:     event.Error,
-	}
-
-	switch event.Type {
-	case ProviderEventSessionStart:
-		ttsEvent.Type = EventSessionStart
-	case ProviderEventSegmentStart:
-		ttsEvent.Type = EventSegmentStart
-	case ProviderEventAudio:
-		ttsEvent.Type = EventAudioFrame
-	case ProviderEventSegmentEnd:
-		ttsEvent.Type = EventSegmentEnd
-	case ProviderEventSessionEnd:
-		ttsEvent.Type = EventSessionEnd
-	case ProviderEventError:
-		ttsEvent.Type = EventError
-	default:
-		ttsEvent.Type = EventError
-		ttsEvent.Error = internalError("unknown provider event type")
-	}
-
-	return ttsEvent
 }
 
 func copySegmentRequest(segment *SegmentRequest) *SegmentRequest {

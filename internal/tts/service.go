@@ -76,7 +76,7 @@ func (s *DefaultService) SynthesizeOnce(ctx context.Context, req *SynthesizeRequ
 		return nil, err
 	}
 
-	return providerEventsToEvents(providerEvents), nil
+	return providerEventsToEvents(providerEvents, req.Output), nil
 }
 
 func (s *DefaultService) OpenSession(ctx context.Context, req *OpenSessionRequest) (Session, error) {
