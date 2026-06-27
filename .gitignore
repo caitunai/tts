@@ -387,3 +387,5 @@ $RECYCLE.BIN/
 
 # End of https://www.toptal.com/developers/gitignore/api/go,node,linux,macos,vuejs,windows,goland+all,sublimetext,visualstudiocode
 tts
+!internal/tts/
+!internal/tts/**
