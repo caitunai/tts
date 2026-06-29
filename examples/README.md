@@ -109,3 +109,25 @@ layer:
 ```sh
 ffplay -f s16le -ar 16000 -ac 1 local_minimax_tts_16k_mono_s16le.pcm
 ```
+
+## local_microsoft_tts
+
+Run against Microsoft Azure Speech TTS HTTP API:
+
+```sh
+export MICROSOFT_TTS_KEY="your-subscription-key"
+export MICROSOFT_TTS_ENDPOINT="https://eastus.tts.speech.microsoft.com/cognitiveservices/v1"
+go run ./examples/local_microsoft_tts \
+  -voice zh-CN-XiaoxiaoNeural \
+  -language zh-CN \
+  -text "你好，今天天气怎么样呢？" \
+  -out local_microsoft_tts.ogg
+```
+
+Microsoft returns Ogg-wrapped Opus at 48 kHz. The platform demuxes it into raw
+Opus packets for the application layer, and this example wraps those packets
+back into an Ogg Opus file for playback:
+
+```sh
+ffplay local_microsoft_tts.ogg
+```
