@@ -34,6 +34,7 @@ type Normalizer struct {
 	cfg NormalizerConfig
 
 	oggDemuxer   OggOpusDemuxer
+	mp3Decoder   *MP3StreamDecoder
 	pcmSplitter  *PCMFrameSplitter
 	pcmResampler *Resampler
 
@@ -113,15 +114,26 @@ func (n *Normalizer) Push(chunk Chunk) ([]Frame, error) {
 			return nil, err
 		}
 		return n.framesFromPCMData(pcm)
+	case CodecMP3:
+		return n.framesFromMP3Data(chunk.Data)
 	default:
 		return nil, fmt.Errorf("unsupported codec %q", chunk.Codec)
 	}
 }
 
-// Finish flushes any buffered PCM tail data.
+// Finish flushes any buffered decoded audio and PCM tail data.
 func (n *Normalizer) Finish() []Frame {
-	frames := n.pcmSplitter.Finish()
-	n.advanceFromFrames(frames)
+	var frames []Frame
+	if n.mp3Decoder != nil {
+		pcms, err := n.mp3Decoder.Finish()
+		if err == nil {
+			mp3Frames, _ := n.framesFromStreamingPCMData(pcms)
+			frames = append(frames, mp3Frames...)
+		}
+	}
+	tailFrames := n.pcmSplitter.Finish()
+	n.advanceFromFrames(tailFrames)
+	frames = append(frames, tailFrames...)
 	return frames
 }
 
@@ -183,6 +195,43 @@ func (n *Normalizer) framesFromPCMData(pcm PCMData) ([]Frame, error) {
 	return frames, nil
 }
 
+func (n *Normalizer) framesFromMP3Data(data []byte) ([]Frame, error) {
+	if len(data) == 0 {
+		return nil, nil
+	}
+	if n.mp3Decoder == nil {
+		n.mp3Decoder = NewMP3StreamDecoder()
+	}
+
+	pcms, err := n.mp3Decoder.Push(data)
+	if err != nil {
+		return nil, err
+	}
+	return n.framesFromStreamingPCMData(pcms)
+}
+
+func (n *Normalizer) framesFromStreamingPCMData(pcms []PCMData) ([]Frame, error) {
+	var frames []Frame
+	for _, pcm := range pcms {
+		data, err := n.normalizeStreamingPCM(Chunk{
+			Codec:      CodecPCM,
+			Container:  ContainerRaw,
+			SampleRate: pcm.SampleRate,
+			Channels:   pcm.Channels,
+			Format:     pcm.Format,
+			Data:       pcm.Data,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		next := n.pcmSplitter.Push(data)
+		n.advanceFromFrames(next)
+		frames = append(frames, next...)
+	}
+	return frames, nil
+}
+
 func (n *Normalizer) normalizeStreamingPCM(chunk Chunk) ([]byte, error) {
 	pcm := PCMData{
 		SampleRate: chunk.SampleRate,
@@ -200,6 +249,11 @@ func (n *Normalizer) normalizeStreamingPCM(chunk Chunk) ([]byte, error) {
 		pcm.Format = n.cfg.Output.PCMFormat
 	}
 
+	var err error
+	pcm, err = n.normalizePCMChannels(pcm)
+	if err != nil {
+		return nil, err
+	}
 	if err := n.validatePCMShape(pcm); err != nil {
 		return nil, err
 	}
@@ -225,6 +279,11 @@ func (n *Normalizer) normalizePCMData(pcm PCMData) ([]byte, int, int, PCMFormat,
 		pcm.Format = n.cfg.Output.PCMFormat
 	}
 
+	var err error
+	pcm, err = n.normalizePCMChannels(pcm)
+	if err != nil {
+		return nil, 0, 0, "", err
+	}
 	if err := n.validatePCMShape(pcm); err != nil {
 		return nil, 0, 0, "", err
 	}
@@ -236,15 +295,24 @@ func (n *Normalizer) normalizePCMData(pcm PCMData) ([]byte, int, int, PCMFormat,
 	return resampler.ProcessBytes(pcm.Data), n.cfg.Output.SampleRate, n.cfg.Output.Channels, n.cfg.Output.PCMFormat, nil
 }
 
+func (n *Normalizer) normalizePCMChannels(pcm PCMData) (PCMData, error) {
+	if pcm.Channels == n.cfg.Output.Channels {
+		return pcm, nil
+	}
+	if pcm.Channels == 2 && n.cfg.Output.Channels == 1 {
+		pcm.Data = stereoS16LEToMono(pcm.Data)
+		pcm.Channels = 1
+		return pcm, nil
+	}
+	return PCMData{}, fmt.Errorf("unsupported PCM channel conversion %d -> %d", pcm.Channels, n.cfg.Output.Channels)
+}
+
 func (n *Normalizer) validatePCMShape(pcm PCMData) error {
 	if pcm.Format != PCMFormatS16LE {
 		return fmt.Errorf("unsupported PCM format %q", pcm.Format)
 	}
 	if n.cfg.Output.PCMFormat != PCMFormatS16LE {
 		return fmt.Errorf("unsupported output PCM format %q", n.cfg.Output.PCMFormat)
-	}
-	if pcm.Channels != n.cfg.Output.Channels {
-		return fmt.Errorf("unsupported PCM channel conversion %d -> %d", pcm.Channels, n.cfg.Output.Channels)
 	}
 	if pcm.SampleRate <= 0 {
 		return fmt.Errorf("sample rate must be positive")

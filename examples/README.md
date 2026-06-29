@@ -84,3 +84,28 @@ ffplay local_qwen_realtime_tts.ogg
 ```
 
 Qwen realtime Opus audio is treated as 48 kHz throughout the provider and platform pipeline.
+
+## local_minimax_tts
+
+Run against Minimax realtime WebSocket TTS API:
+
+```sh
+export MINIMAX_TTS_TOKEN="your-token"
+export MINIMAX_TTS_ENDPOINT="wss://your-minimax-tts-websocket-endpoint"
+go run ./examples/local_minimax_tts \
+  -model speech-2.8-hd \
+  -voice male-qn-qingse \
+  -language zh \
+  -emotion happy \
+  -text "你好，今天天气怎么样呢？" \
+  -append-text "这是第二段追加文本，用来验证 Minimax append text 是否生效。" \
+  -out local_minimax_tts_16k_mono_s16le.pcm
+```
+
+The Minimax provider receives MP3 chunks from the upstream service, while the
+platform decodes them into 16 kHz / mono / 20 ms PCM frames for the application
+layer:
+
+```sh
+ffplay -f s16le -ar 16000 -ac 1 local_minimax_tts_16k_mono_s16le.pcm
+```

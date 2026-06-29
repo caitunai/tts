@@ -1,6 +1,9 @@
 package audio
 
-import "fmt"
+import (
+	"encoding/binary"
+	"fmt"
+)
 
 const s16leBytesPerSample = 2
 
@@ -155,4 +158,22 @@ func (s *PCMFrameSplitter) drain(segmentFinal bool) []Frame {
 	}
 
 	return frames
+}
+
+func stereoS16LEToMono(data []byte) []byte {
+	frameBytes := s16leBytesPerSample * 2
+	sampleFrames := len(data) / frameBytes
+	if sampleFrames == 0 {
+		return nil
+	}
+
+	mono := make([]byte, sampleFrames*s16leBytesPerSample)
+	for i := 0; i < sampleFrames; i++ {
+		offset := i * frameBytes
+		left := int16(binary.LittleEndian.Uint16(data[offset : offset+s16leBytesPerSample]))
+		right := int16(binary.LittleEndian.Uint16(data[offset+s16leBytesPerSample : offset+frameBytes]))
+		mixed := int32(left)/2 + int32(right)/2
+		binary.LittleEndian.PutUint16(mono[i*s16leBytesPerSample:(i+1)*s16leBytesPerSample], uint16(int16(mixed)))
+	}
+	return mono
 }
