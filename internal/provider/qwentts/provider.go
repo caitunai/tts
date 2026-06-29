@@ -35,7 +35,7 @@ const (
 	Auto       = "Auto"
 )
 
-// Config configures an Alibaba Cloud Qwen TTS provider.
+// Config configures an Alibaba Cloud Qwen HTTP TTS provider.
 type Config struct {
 	Name string
 
@@ -65,7 +65,7 @@ type Provider struct {
 	client *resty.Client
 }
 
-// NewProvider creates a Qwen TTS provider.
+// NewProvider creates a Qwen HTTP TTS provider.
 func NewProvider(cfg Config) (*Provider, error) {
 	if cfg.Name == "" {
 		cfg.Name = defaultProviderName
@@ -159,7 +159,7 @@ func (p *Provider) SynthesizeOnce(ctx context.Context, req *tts.ProviderSynthesi
 func (p *Provider) OpenSession(context.Context, *tts.ProviderOpenSessionRequest) (tts.ProviderSession, error) {
 	return nil, &tts.Error{
 		Code:     tts.ErrUnsupportedFeature,
-		Message:  "qwen tts provider does not support sessions",
+		Message:  "qwen tts HTTP provider does not support sessions",
 		Provider: p.name,
 	}
 }

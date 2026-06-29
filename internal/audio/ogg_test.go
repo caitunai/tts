@@ -1,6 +1,7 @@
 package audio
 
 import (
+	"bytes"
 	"encoding/binary"
 	"testing"
 )
@@ -66,6 +67,52 @@ func TestOggOpusDemuxerReassemblesLargePacket(t *testing.T) {
 	}
 	if len(packets[0].Data) != len(packet) {
 		t.Fatalf("packet length = %d, want %d", len(packets[0].Data), len(packet))
+	}
+}
+
+func TestOggOpusMuxerWrapsRawPackets(t *testing.T) {
+	var out bytes.Buffer
+	muxer := NewOggOpusMuxer()
+
+	if err := muxer.WritePacket(&out, []byte{0x78, 0x11, 0x22}); err != nil {
+		t.Fatalf("WritePacket first: %v", err)
+	}
+	if err := muxer.WritePacket(&out, []byte{0x78, 0x33}); err != nil {
+		t.Fatalf("WritePacket second: %v", err)
+	}
+	if err := muxer.Finish(&out); err != nil {
+		t.Fatalf("Finish: %v", err)
+	}
+
+	if !bytes.Contains(out.Bytes(), []byte("OpusHead")) {
+		t.Fatal("muxed stream does not contain OpusHead")
+	}
+	if !bytes.Contains(out.Bytes(), []byte("OpusTags")) {
+		t.Fatal("muxed stream does not contain OpusTags")
+	}
+
+	demuxer := &OggOpusDemuxer{}
+	packets, err := demuxer.Push(out.Bytes())
+	if err != nil {
+		t.Fatalf("demux muxed stream: %v", err)
+	}
+	if len(packets) != 4 {
+		t.Fatalf("packets = %d, want 4", len(packets))
+	}
+	if string(packets[0].Data[:8]) != "OpusHead" {
+		t.Fatalf("first packet prefix = %q, want OpusHead", packets[0].Data[:8])
+	}
+	if string(packets[1].Data[:8]) != "OpusTags" {
+		t.Fatalf("second packet prefix = %q, want OpusTags", packets[1].Data[:8])
+	}
+	if !bytes.Equal(packets[2].Data, []byte{0x78, 0x11, 0x22}) {
+		t.Fatalf("third packet = %v", packets[2].Data)
+	}
+	if !bytes.Equal(packets[3].Data, []byte{0x78, 0x33}) {
+		t.Fatalf("fourth packet = %v", packets[3].Data)
+	}
+	if packets[3].GranulePosition != 1920 {
+		t.Fatalf("final audio granule = %d, want 1920", packets[3].GranulePosition)
 	}
 }
 

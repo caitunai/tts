@@ -140,7 +140,7 @@ func (n *Normalizer) opusPacketsToFrames(packets []OpusPacket) []Frame {
 			SegmentID:   n.cfg.SegmentID,
 			Codec:       CodecOpus,
 			Container:   ContainerRaw,
-			SampleRate:  n.cfg.Output.SampleRate,
+			SampleRate:  OpusSampleRate,
 			Channels:    n.cfg.Output.Channels,
 			Seq:         n.seq,
 			GlobalSeq:   n.globalSeq,

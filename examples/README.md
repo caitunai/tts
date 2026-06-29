@@ -58,3 +58,29 @@ Play the generated PCM:
 ```sh
 ffplay -f s16le -ar 16000 -ac 1 local_qwen_tts_16k_mono_s16le.pcm
 ```
+
+## local_qwen_realtime_tts
+
+Run against Alibaba Cloud DashScope/Qwen realtime WebSocket TTS API:
+
+```sh
+export DASHSCOPE_API_KEY="your-token"
+go run ./examples/local_qwen_realtime_tts \
+  -model qwen3-tts-instruct-flash-realtime \
+  -voice Cherry \
+  -language zh \
+  -instructions "温暖自然的语气" \
+  -text "你好，今天天气怎么样呢？" \
+  -append-text "这是第二段追加文本，用来验证 append text 是否生效。" \
+  -out local_qwen_realtime_tts.ogg
+```
+
+The example appends two text segments to the same realtime session by default.
+The platform emits raw Opus packets to the application layer, and the example
+wraps them back into an Ogg Opus file for playback:
+
+```sh
+ffplay local_qwen_realtime_tts.ogg
+```
+
+Qwen realtime Opus audio is treated as 48 kHz throughout the provider and platform pipeline.

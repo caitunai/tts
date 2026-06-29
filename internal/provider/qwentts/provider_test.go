@@ -233,6 +233,34 @@ func TestCapabilitiesIncludeConfiguredVoiceAndLanguages(t *testing.T) {
 	if len(caps.Languages) != 11 {
 		t.Fatalf("languages length = %d, want 11", len(caps.Languages))
 	}
+	if caps.SupportsAppendText {
+		t.Fatal("SupportsAppendText = true, want false")
+	}
+	if caps.SupportsOggOpusOutput {
+		t.Fatal("SupportsOggOpusOutput = true, want false")
+	}
+	if containsTransport(caps.Transports, tts.TransportWebSocket) {
+		t.Fatalf("transports = %#v, should not include websocket", caps.Transports)
+	}
+}
+
+func TestProviderOpenSessionUnsupported(t *testing.T) {
+	provider, err := NewProvider(Config{Name: "qwen", Endpoint: "http://127.0.0.1/qwen"})
+	if err != nil {
+		t.Fatalf("NewProvider: %v", err)
+	}
+
+	_, err = provider.OpenSession(context.Background(), &tts.ProviderOpenSessionRequest{SessionID: "sess"})
+	if err == nil {
+		t.Fatal("OpenSession returned nil error, want unsupported feature")
+	}
+	ttsErr, ok := err.(*tts.Error)
+	if !ok {
+		t.Fatalf("error type = %T, want *tts.Error", err)
+	}
+	if ttsErr.Code != tts.ErrUnsupportedFeature {
+		t.Fatalf("error code = %q, want unsupported feature", ttsErr.Code)
+	}
 }
 
 func TestRewriteLang(t *testing.T) {
@@ -272,4 +300,13 @@ func collectProviderEvents(events <-chan *tts.ProviderEvent) []*tts.ProviderEven
 		got = append(got, event)
 	}
 	return got
+}
+
+func containsTransport(values []tts.TransportType, target tts.TransportType) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }

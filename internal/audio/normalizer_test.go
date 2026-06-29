@@ -10,7 +10,7 @@ func TestNormalizerConvertsOggOpusToRawOpusFrames(t *testing.T) {
 		RequestID: "req",
 		SegmentID: "seg",
 		Output: OutputConfig{
-			SampleRate: 48000,
+			SampleRate: 16000,
 			Channels:   1,
 			FrameMS:    20,
 		},
@@ -35,6 +35,9 @@ func TestNormalizerConvertsOggOpusToRawOpusFrames(t *testing.T) {
 	}
 	if frames[0].Container != ContainerRaw {
 		t.Fatalf("Container = %q, want %q", frames[0].Container, ContainerRaw)
+	}
+	if frames[0].SampleRate != OpusSampleRate {
+		t.Fatalf("SampleRate = %d, want %d", frames[0].SampleRate, OpusSampleRate)
 	}
 	if string(frames[0].Data) != "audio-packet" {
 		t.Fatalf("Data = %q, want audio-packet", string(frames[0].Data))

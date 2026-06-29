@@ -32,6 +32,7 @@ const (
 
 const (
 	DefaultSampleRate = 16000
+	OpusSampleRate    = 48000
 	DefaultChannels   = 1
 	DefaultFrameMS    = 20
 )
