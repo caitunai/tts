@@ -1,6 +1,7 @@
 package httptts
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -81,6 +82,44 @@ func TestProviderStreamsChunkedPCM(t *testing.T) {
 	}
 	if gotBody.Language != "Chinese" {
 		t.Fatalf("language = %q, want Chinese", gotBody.Language)
+	}
+}
+
+func TestProviderDefaultChunkSizeIsPCM20msFrame(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		_, _ = w.Write(bytes.Repeat([]byte{1}, defaultChunkSize+60))
+	}))
+	defer server.Close()
+
+	provider, err := NewProvider(Config{
+		Name:     "local",
+		Endpoint: server.URL,
+	})
+	if err != nil {
+		t.Fatalf("NewProvider: %v", err)
+	}
+
+	events, err := provider.SynthesizeOnce(context.Background(), &tts.ProviderSynthesizeRequest{
+		RequestID: "req_http",
+		Text:      "你好",
+	})
+	if err != nil {
+		t.Fatalf("SynthesizeOnce: %v", err)
+	}
+
+	got := collectProviderEvents(events)
+	if len(got) != 4 {
+		t.Fatalf("event count = %d, want 4", len(got))
+	}
+	if len(got[1].Audio.Data) != defaultChunkSize {
+		t.Fatalf("first chunk length = %d, want %d", len(got[1].Audio.Data), defaultChunkSize)
+	}
+	if len(got[2].Audio.Data) != 60 {
+		t.Fatalf("second chunk length = %d, want 60", len(got[2].Audio.Data))
+	}
+	if defaultChunkSize != 640 {
+		t.Fatalf("defaultChunkSize = %d, want 640", defaultChunkSize)
 	}
 }
 

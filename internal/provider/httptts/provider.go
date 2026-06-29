@@ -1,21 +1,20 @@
 package httptts
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 
 	"github.com/caitunai/tts/internal/audio"
 	"github.com/caitunai/tts/internal/tts"
+	"github.com/go-resty/resty/v2"
 )
 
 const (
 	defaultProviderName   = "http_tts"
 	defaultResponseFormat = "pcm"
-	defaultChunkSize      = 4096
+	defaultChunkSize      = audio.DefaultSampleRate * audio.DefaultFrameMS / 1000 * audio.DefaultChannels * 2
 	defaultSegmentID      = "seg_001"
 )
 
@@ -31,7 +30,7 @@ type Config struct {
 	ResponseFormat  string
 
 	ChunkSize int
-	Client    *http.Client
+	Client    *resty.Client
 }
 
 // Provider adapts an HTTP chunked PCM TTS endpoint to the TTS Provider
@@ -47,7 +46,7 @@ type Provider struct {
 	responseFormat  string
 
 	chunkSize int
-	client    *http.Client
+	client    *resty.Client
 }
 
 // NewProvider creates an HTTP TTS provider.
@@ -76,7 +75,7 @@ func NewProvider(cfg Config) (*Provider, error) {
 		}
 	}
 	if cfg.Client == nil {
-		cfg.Client = http.DefaultClient
+		cfg.Client = resty.New()
 	}
 
 	return &Provider{
@@ -148,13 +147,7 @@ func (p *Provider) stream(ctx context.Context, req *tts.ProviderSynthesizeReques
 		segmentID = req.RequestID
 	}
 
-	httpReq, err := p.buildRequest(ctx, req)
-	if err != nil {
-		events <- p.errorEvent(req, segmentID, err)
-		return
-	}
-
-	resp, err := p.client.Do(httpReq)
+	resp, err := p.doRequest(ctx, req)
 	if err != nil {
 		events <- p.errorEvent(req, segmentID, &tts.Error{
 			Code:      tts.ErrProviderUnavailable,
@@ -166,9 +159,9 @@ func (p *Provider) stream(ctx context.Context, req *tts.ProviderSynthesizeReques
 		})
 		return
 	}
-	defer resp.Body.Close()
+	defer resp.RawBody().Close()
 
-	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+	if resp.StatusCode() < http.StatusOK || resp.StatusCode() >= http.StatusMultipleChoices {
 		events <- p.errorEvent(req, segmentID, statusError(p.name, segmentID, resp))
 		return
 	}
@@ -182,7 +175,7 @@ func (p *Provider) stream(ctx context.Context, req *tts.ProviderSynthesizeReques
 
 	buf := make([]byte, p.chunkSize)
 	for {
-		n, readErr := resp.Body.Read(buf)
+		n, readErr := resp.RawBody().Read(buf)
 		if n > 0 {
 			data := make([]byte, n)
 			copy(data, buf[:n])
@@ -226,7 +219,7 @@ func (p *Provider) stream(ctx context.Context, req *tts.ProviderSynthesizeReques
 	}
 }
 
-func (p *Provider) buildRequest(ctx context.Context, req *tts.ProviderSynthesizeRequest) (*http.Request, error) {
+func (p *Provider) doRequest(ctx context.Context, req *tts.ProviderSynthesizeRequest) (*resty.Response, error) {
 	body := requestBody{
 		Input:          req.Text,
 		Voice:          valueOrDefault(req.Voice, p.defaultVoice),
@@ -235,21 +228,17 @@ func (p *Provider) buildRequest(ctx context.Context, req *tts.ProviderSynthesize
 		Language:       valueOrDefault(req.Language, p.defaultLanguage),
 	}
 
-	data, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
+	request := p.client.R().
+		SetContext(ctx).
+		SetDoNotParseResponse(true).
+		SetHeader("Content-Type", "application/json").
+		SetHeader("Accept", "application/octet-stream").
+		SetBody(body)
+	if p.token != "" {
+		request.SetAuthToken(p.token)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, p.endpoint, bytes.NewReader(data))
-	if err != nil {
-		return nil, err
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Accept", "application/octet-stream")
-	if p.token != "" {
-		httpReq.Header.Set("Authorization", "Bearer "+p.token)
-	}
-	return httpReq, nil
+	return request.Post(p.endpoint)
 }
 
 func (p *Provider) errorEvent(req *tts.ProviderSynthesizeRequest, segmentID string, err error) *tts.ProviderEvent {
@@ -262,12 +251,12 @@ func (p *Provider) errorEvent(req *tts.ProviderSynthesizeRequest, segmentID stri
 	}
 }
 
-func statusError(provider, segmentID string, resp *http.Response) *tts.Error {
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+func statusError(provider, segmentID string, resp *resty.Response) *tts.Error {
+	body, _ := io.ReadAll(io.LimitReader(resp.RawBody(), 4096))
 
 	code := tts.ErrProviderUnavailable
-	retryable := resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= http.StatusInternalServerError
-	switch resp.StatusCode {
+	retryable := resp.StatusCode() == http.StatusTooManyRequests || resp.StatusCode() >= http.StatusInternalServerError
+	switch resp.StatusCode() {
 	case http.StatusUnauthorized, http.StatusForbidden:
 		code = tts.ErrProviderAuthFailed
 	case http.StatusTooManyRequests:
@@ -276,7 +265,7 @@ func statusError(provider, segmentID string, resp *http.Response) *tts.Error {
 
 	return &tts.Error{
 		Code:      code,
-		Message:   fmt.Sprintf("http tts status %d: %s", resp.StatusCode, string(body)),
+		Message:   fmt.Sprintf("http tts status %d: %s", resp.StatusCode(), string(body)),
 		Provider:  provider,
 		SegmentID: segmentID,
 		Retryable: retryable,
