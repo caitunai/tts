@@ -389,3 +389,4 @@ $RECYCLE.BIN/
 tts
 !internal/tts/
 !internal/tts/**
+*.pcm

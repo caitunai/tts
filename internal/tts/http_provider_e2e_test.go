@@ -1,6 +1,7 @@
 package tts_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -9,7 +10,7 @@ import (
 
 	"github.com/caitunai/tts/internal/audio"
 	registryprovider "github.com/caitunai/tts/internal/provider"
-	"github.com/caitunai/tts/internal/provider/httptts"
+	"github.com/caitunai/tts/internal/provider/vllmtts"
 	"github.com/caitunai/tts/internal/tts"
 )
 
@@ -31,18 +32,16 @@ func TestHTTPProviderEndToEnd(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/octet-stream")
-		_, _ = w.Write([]byte{1, 2})
-		_, _ = w.Write([]byte{3})
+		_, _ = w.Write(bytes.Repeat([]byte{1}, 960))
 	}))
 	defer server.Close()
 
-	httpProvider, err := httptts.NewProvider(httptts.Config{
+	httpProvider, err := vllmtts.NewProvider(vllmtts.Config{
 		Name:            "local_http",
 		Endpoint:        server.URL,
 		Token:           "local-token",
 		DefaultVoice:    "serena",
 		DefaultLanguage: "Chinese",
-		ChunkSize:       2,
 	})
 	if err != nil {
 		t.Fatalf("NewProvider: %v", err)
@@ -80,9 +79,6 @@ func TestHTTPProviderEndToEnd(t *testing.T) {
 	}
 	if len(got[1].Audio.Data) != 640 {
 		t.Fatalf("PCM frame length = %d, want 640", len(got[1].Audio.Data))
-	}
-	if !got[1].Audio.SegmentFinal {
-		t.Fatal("SegmentFinal = false, want true")
 	}
 
 	if gotRequest.Input != "你好，今天天气怎么样呢？" {

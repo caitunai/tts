@@ -73,3 +73,46 @@ func TestNormalizerConvertsWAVToPCMFrames(t *testing.T) {
 		t.Fatalf("frame data length = %d, want 640", len(frames[0].Data))
 	}
 }
+
+func TestNormalizerResamplesPCMToOutputConfig(t *testing.T) {
+	normalizer, err := NewNormalizer(NormalizerConfig{
+		RequestID: "req",
+		SegmentID: "seg",
+		Output: OutputConfig{
+			SampleRate: 16000,
+			Channels:   1,
+			FrameMS:    20,
+			PCMFormat:  PCMFormatS16LE,
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewNormalizer: %v", err)
+	}
+
+	frames, err := normalizer.Push(Chunk{
+		Codec:      CodecPCM,
+		Container:  ContainerRaw,
+		SampleRate: 24000,
+		Channels:   1,
+		Format:     PCMFormatS16LE,
+		Data:       Int16ToBytes(rampSamples(480)),
+	})
+	if err != nil {
+		t.Fatalf("Push: %v", err)
+	}
+	if len(frames) != 1 {
+		t.Fatalf("frames = %d, want 1", len(frames))
+	}
+	if frames[0].SampleRate != 16000 {
+		t.Fatalf("sample rate = %d, want 16000", frames[0].SampleRate)
+	}
+	if frames[0].Channels != 1 {
+		t.Fatalf("channels = %d, want 1", frames[0].Channels)
+	}
+	if frames[0].FrameMS != 20 {
+		t.Fatalf("frame ms = %d, want 20", frames[0].FrameMS)
+	}
+	if len(frames[0].Data) != 640 {
+		t.Fatalf("frame data length = %d, want 640", len(frames[0].Data))
+	}
+}

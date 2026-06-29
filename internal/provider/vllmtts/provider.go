@@ -1,7 +1,8 @@
-package httptts
+package vllmtts
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,13 +13,14 @@ import (
 )
 
 const (
-	defaultProviderName   = "http_tts"
+	defaultProviderName   = "vllm_tts"
 	defaultResponseFormat = "pcm"
-	defaultChunkSize      = audio.DefaultSampleRate * audio.DefaultFrameMS / 1000 * audio.DefaultChannels * 2
+	defaultSampleRate     = 24000
+	defaultChunkSize      = defaultSampleRate * audio.DefaultFrameMS / 1000 * audio.DefaultChannels * 2
 	defaultSegmentID      = "seg_001"
 )
 
-// Config configures an HTTP TTS provider.
+// Config configures a vLLM TTS provider.
 type Config struct {
 	Name string
 
@@ -33,7 +35,7 @@ type Config struct {
 	Client    *resty.Client
 }
 
-// Provider adapts an HTTP chunked PCM TTS endpoint to the TTS Provider
+// Provider adapts a vLLM-compatible chunked PCM TTS endpoint to the TTS Provider
 // interface.
 type Provider struct {
 	name string
@@ -49,7 +51,7 @@ type Provider struct {
 	client    *resty.Client
 }
 
-// NewProvider creates an HTTP TTS provider.
+// NewProvider creates a vLLM TTS provider.
 func NewProvider(cfg Config) (*Provider, error) {
 	if cfg.Name == "" {
 		cfg.Name = defaultProviderName
@@ -57,7 +59,7 @@ func NewProvider(cfg Config) (*Provider, error) {
 	if cfg.Endpoint == "" {
 		return nil, &tts.Error{
 			Code:     tts.ErrUnsupportedProvider,
-			Message:  "http tts endpoint is required",
+			Message:  "vllm tts endpoint is required",
 			Provider: cfg.Name,
 		}
 	}
@@ -70,7 +72,7 @@ func NewProvider(cfg Config) (*Provider, error) {
 	if cfg.ChunkSize < 0 {
 		return nil, &tts.Error{
 			Code:     tts.ErrUnsupportedProvider,
-			Message:  "http tts chunk size must be positive",
+			Message:  "vllm tts chunk size must be positive",
 			Provider: cfg.Name,
 		}
 	}
@@ -104,7 +106,7 @@ func (p *Provider) Capabilities(context.Context) (*tts.ProviderCapabilities, err
 		SupportsPCMOutput:       true,
 		OutputCodecs:            []audio.Codec{audio.CodecPCM},
 		OutputContainers:        []audio.Container{audio.ContainerRaw},
-		OutputSampleRates:       []int{audio.DefaultSampleRate},
+		OutputSampleRates:       []int{defaultSampleRate},
 		OutputChannels:          []int{audio.DefaultChannels},
 	}
 	if p.defaultVoice != "" {
@@ -126,15 +128,14 @@ func (p *Provider) SynthesizeOnce(ctx context.Context, req *tts.ProviderSynthesi
 	}
 
 	events := make(chan *tts.ProviderEvent, 16)
-	reqCopy := *req
-	go p.stream(ctx, &reqCopy, events)
+	go p.stream(ctx, req, events)
 	return events, nil
 }
 
 func (p *Provider) OpenSession(context.Context, *tts.ProviderOpenSessionRequest) (tts.ProviderSession, error) {
 	return nil, &tts.Error{
 		Code:     tts.ErrUnsupportedFeature,
-		Message:  "http tts provider does not support sessions",
+		Message:  "vllm tts provider does not support sessions",
 		Provider: p.name,
 	}
 }
@@ -159,7 +160,9 @@ func (p *Provider) stream(ctx context.Context, req *tts.ProviderSynthesizeReques
 		})
 		return
 	}
-	defer resp.RawBody().Close()
+	defer func(body io.ReadCloser) {
+		_ = body.Close()
+	}(resp.RawBody())
 
 	if resp.StatusCode() < http.StatusOK || resp.StatusCode() >= http.StatusMultipleChoices {
 		events <- p.errorEvent(req, segmentID, statusError(p.name, segmentID, resp))
@@ -187,7 +190,7 @@ func (p *Provider) stream(ctx context.Context, req *tts.ProviderSynthesizeReques
 				Audio: &tts.ProviderAudioChunk{
 					Codec:      audio.CodecPCM,
 					Container:  audio.ContainerRaw,
-					SampleRate: audio.DefaultSampleRate,
+					SampleRate: defaultSampleRate,
 					Channels:   audio.DefaultChannels,
 					Format:     audio.PCMFormatS16LE,
 					Data:       data,
@@ -265,7 +268,7 @@ func statusError(provider, segmentID string, resp *resty.Response) *tts.Error {
 
 	return &tts.Error{
 		Code:      code,
-		Message:   fmt.Sprintf("http tts status %d: %s", resp.StatusCode(), string(body)),
+		Message:   fmt.Sprintf("vllm tts status %d: %s", resp.StatusCode(), string(body)),
 		Provider:  provider,
 		SegmentID: segmentID,
 		Retryable: retryable,
@@ -276,7 +279,7 @@ func errorToTTSError(err error, provider, segmentID string) *tts.Error {
 	if err == nil {
 		return nil
 	}
-	if ttsErr, ok := err.(*tts.Error); ok {
+	if ttsErr, ok := errors.AsType[*tts.Error](err); ok {
 		return ttsErr
 	}
 	return &tts.Error{

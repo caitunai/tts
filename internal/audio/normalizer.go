@@ -33,8 +33,11 @@ type NormalizerConfig struct {
 type Normalizer struct {
 	cfg NormalizerConfig
 
-	oggDemuxer  OggOpusDemuxer
-	pcmSplitter *PCMFrameSplitter
+	oggDemuxer   OggOpusDemuxer
+	pcmSplitter  *PCMFrameSplitter
+	pcmResampler *Resampler
+
+	pcmInputSampleRate int
 
 	seq         uint32
 	globalSeq   uint64
@@ -97,7 +100,11 @@ func (n *Normalizer) Push(chunk Chunk) ([]Frame, error) {
 		}
 		return n.opusPacketsToFrames(packets), nil
 	case CodecPCM:
-		frames := n.pcmSplitter.Push(chunk.Data)
+		data, err := n.normalizeStreamingPCM(chunk)
+		if err != nil {
+			return nil, err
+		}
+		frames := n.pcmSplitter.Push(data)
 		n.advanceFromFrames(frames)
 		return frames, nil
 	case CodecWAV:
@@ -148,14 +155,19 @@ func (n *Normalizer) opusPacketsToFrames(packets []OpusPacket) []Frame {
 }
 
 func (n *Normalizer) framesFromPCMData(pcm PCMData) ([]Frame, error) {
+	data, sampleRate, channels, format, err := n.normalizePCMData(pcm)
+	if err != nil {
+		return nil, err
+	}
+
 	splitter, err := NewPCMFrameSplitter(PCMFrameSplitterConfig{
 		RequestID:         n.cfg.RequestID,
 		SessionID:         n.cfg.SessionID,
 		SegmentID:         n.cfg.SegmentID,
-		SampleRate:        pcm.SampleRate,
-		Channels:          pcm.Channels,
+		SampleRate:        sampleRate,
+		Channels:          channels,
 		FrameMS:           n.cfg.Output.FrameMS,
-		Format:            pcm.Format,
+		Format:            format,
 		TailPolicy:        n.cfg.TailPolicy,
 		StartingSeq:       n.seq,
 		StartingGlobalSeq: n.globalSeq,
@@ -165,10 +177,79 @@ func (n *Normalizer) framesFromPCMData(pcm PCMData) ([]Frame, error) {
 		return nil, err
 	}
 
-	frames := splitter.Push(pcm.Data)
+	frames := splitter.Push(data)
 	frames = append(frames, splitter.Finish()...)
 	n.advanceFromFrames(frames)
 	return frames, nil
+}
+
+func (n *Normalizer) normalizeStreamingPCM(chunk Chunk) ([]byte, error) {
+	pcm := PCMData{
+		SampleRate: chunk.SampleRate,
+		Channels:   chunk.Channels,
+		Format:     chunk.Format,
+		Data:       chunk.Data,
+	}
+	if pcm.SampleRate == 0 {
+		pcm.SampleRate = n.cfg.Output.SampleRate
+	}
+	if pcm.Channels == 0 {
+		pcm.Channels = n.cfg.Output.Channels
+	}
+	if pcm.Format == "" {
+		pcm.Format = n.cfg.Output.PCMFormat
+	}
+
+	if err := n.validatePCMShape(pcm); err != nil {
+		return nil, err
+	}
+	if pcm.SampleRate == n.cfg.Output.SampleRate {
+		return pcm.Data, nil
+	}
+
+	if n.pcmResampler == nil || n.pcmInputSampleRate != pcm.SampleRate {
+		n.pcmResampler = NewResampler(pcm.SampleRate, n.cfg.Output.SampleRate)
+		n.pcmInputSampleRate = pcm.SampleRate
+	}
+	return n.pcmResampler.ProcessBytes(pcm.Data), nil
+}
+
+func (n *Normalizer) normalizePCMData(pcm PCMData) ([]byte, int, int, PCMFormat, error) {
+	if pcm.SampleRate == 0 {
+		pcm.SampleRate = n.cfg.Output.SampleRate
+	}
+	if pcm.Channels == 0 {
+		pcm.Channels = n.cfg.Output.Channels
+	}
+	if pcm.Format == "" {
+		pcm.Format = n.cfg.Output.PCMFormat
+	}
+
+	if err := n.validatePCMShape(pcm); err != nil {
+		return nil, 0, 0, "", err
+	}
+	if pcm.SampleRate == n.cfg.Output.SampleRate {
+		return pcm.Data, n.cfg.Output.SampleRate, n.cfg.Output.Channels, n.cfg.Output.PCMFormat, nil
+	}
+
+	resampler := NewResampler(pcm.SampleRate, n.cfg.Output.SampleRate)
+	return resampler.ProcessBytes(pcm.Data), n.cfg.Output.SampleRate, n.cfg.Output.Channels, n.cfg.Output.PCMFormat, nil
+}
+
+func (n *Normalizer) validatePCMShape(pcm PCMData) error {
+	if pcm.Format != PCMFormatS16LE {
+		return fmt.Errorf("unsupported PCM format %q", pcm.Format)
+	}
+	if n.cfg.Output.PCMFormat != PCMFormatS16LE {
+		return fmt.Errorf("unsupported output PCM format %q", n.cfg.Output.PCMFormat)
+	}
+	if pcm.Channels != n.cfg.Output.Channels {
+		return fmt.Errorf("unsupported PCM channel conversion %d -> %d", pcm.Channels, n.cfg.Output.Channels)
+	}
+	if pcm.SampleRate <= 0 {
+		return fmt.Errorf("sample rate must be positive")
+	}
+	return nil
 }
 
 func (n *Normalizer) advanceFromFrames(frames []Frame) {

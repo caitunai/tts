@@ -1,4 +1,4 @@
-package httptts
+package vllmtts
 
 import (
 	"bytes"
@@ -68,6 +68,9 @@ func TestProviderStreamsChunkedPCM(t *testing.T) {
 	if got[1].Audio.Codec != audio.CodecPCM {
 		t.Fatalf("audio codec = %q, want pcm", got[1].Audio.Codec)
 	}
+	if got[1].Audio.SampleRate != 24000 {
+		t.Fatalf("audio sample rate = %d, want 24000", got[1].Audio.SampleRate)
+	}
 	if gotBody.Input != "你好" {
 		t.Fatalf("input = %q, want 你好", gotBody.Input)
 	}
@@ -118,8 +121,8 @@ func TestProviderDefaultChunkSizeIsPCM20msFrame(t *testing.T) {
 	if len(got[2].Audio.Data) != 60 {
 		t.Fatalf("second chunk length = %d, want 60", len(got[2].Audio.Data))
 	}
-	if defaultChunkSize != 640 {
-		t.Fatalf("defaultChunkSize = %d, want 640", defaultChunkSize)
+	if defaultChunkSize != 960 {
+		t.Fatalf("defaultChunkSize = %d, want 960", defaultChunkSize)
 	}
 }
 
@@ -174,6 +177,9 @@ func TestCapabilitiesIncludeConfiguredVoiceAndLanguage(t *testing.T) {
 	}
 	if len(caps.Languages) != 1 || caps.Languages[0].Code != "Chinese" {
 		t.Fatalf("languages = %#v, want Chinese", caps.Languages)
+	}
+	if len(caps.OutputSampleRates) != 1 || caps.OutputSampleRates[0] != 24000 {
+		t.Fatalf("output sample rates = %#v, want 24000", caps.OutputSampleRates)
 	}
 }
 
