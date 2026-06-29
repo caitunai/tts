@@ -131,3 +131,24 @@ back into an Ogg Opus file for playback:
 ```sh
 ffplay local_microsoft_tts.ogg
 ```
+
+## local_elevenlabs_tts
+
+Run against ElevenLabs realtime WebSocket TTS API:
+
+```sh
+export ELEVENLABS_API_KEY="your-api-key"
+go run ./examples/local_elevenlabs_tts \
+  -voice 21m00Tcm4TlvDq8ikWAM \
+  -model eleven_multilingual_v2 \
+  -text "Hello, how is the weather today?" \
+  -out local_elevenlabs_tts.ogg
+```
+
+ElevenLabs realtime returns base64 Ogg-wrapped Opus at 48 kHz. The platform
+demuxes it into raw Opus packets for the application layer, and this example
+wraps those packets back into an Ogg Opus file for playback:
+
+```sh
+ffplay local_elevenlabs_tts.ogg
+```
