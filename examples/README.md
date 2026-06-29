@@ -31,3 +31,30 @@ Play the generated PCM:
 ```sh
 ffplay -f s16le -ar 16000 -ac 1 local_http_tts_16k_mono_s16le.pcm
 ```
+
+## local_qwen_tts
+
+Run against Alibaba Cloud DashScope/Qwen TTS SSE API:
+
+```sh
+export DASHSCOPE_API_KEY="your-token"
+go run ./examples/local_qwen_tts \
+  -model qwen-tts \
+  -voice Cherry \
+  -language zh \
+  -text "你好，今天天气怎么样呢？" \
+  -out local_qwen_tts_16k_mono_s16le.pcm
+```
+
+Override the endpoint if needed:
+
+```sh
+go run ./examples/local_qwen_tts \
+  -endpoint https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation
+```
+
+Play the generated PCM:
+
+```sh
+ffplay -f s16le -ar 16000 -ac 1 local_qwen_tts_16k_mono_s16le.pcm
+```
