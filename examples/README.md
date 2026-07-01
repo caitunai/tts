@@ -152,3 +152,27 @@ wraps those packets back into an Ogg Opus file for playback:
 ```sh
 ffplay local_elevenlabs_tts.ogg
 ```
+
+## local_doubao_tts
+
+Run against Doubao bidirectional WebSocket TTS API:
+
+```sh
+export DOUBAO_TTS_API_KEY="your-api-key"
+export DOUBAO_TTS_VOICE="your-speaker-id"
+go run ./examples/local_doubao_tts \
+  -resource-id seed-tts-2.0 \
+  -language zh \
+  -guidance "温暖自然地说话" \
+  -text "你好，今天天气怎么样呢？" \
+  -append-text "这是第二段追加文本，用来验证豆包 append text 是否生效。" \
+  -out local_doubao_tts.ogg
+```
+
+Doubao returns Ogg-wrapped Opus. The platform treats Opus as 48 kHz, demuxes it
+into raw Opus packets for the application layer, and this example wraps those
+packets back into an Ogg Opus file for playback:
+
+```sh
+ffplay local_doubao_tts.ogg
+```

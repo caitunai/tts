@@ -390,3 +390,5 @@ tts
 !internal/tts/
 !internal/tts/**
 *.pcm
+*.opus
+*.ogg
