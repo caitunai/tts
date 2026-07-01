@@ -442,12 +442,6 @@ func newRealtimeTestServer(t *testing.T) *realtimeTestServer {
 					testServer.errors <- err
 					return
 				}
-				if msg.Flush {
-					if err := conn.WriteJSON(speakResponse{IsFinal: true}); err != nil {
-						testServer.errors <- err
-						return
-					}
-				}
 			}
 		}
 	}))

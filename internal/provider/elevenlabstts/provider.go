@@ -356,7 +356,7 @@ func (s *realtimeSession) AppendText(ctx context.Context, segment *tts.ProviderS
 	if err := s.writeJSON(ctx, speakRequest{
 		Text:                 textWithTrailingSpace(segment.Text),
 		TryTriggerGeneration: true,
-		Flush:                true,
+		Flush:                segment.IsLast,
 	}); err != nil {
 		return s.writeError(err, segment.SegmentID)
 	}
@@ -364,7 +364,9 @@ func (s *realtimeSession) AppendText(ctx context.Context, segment *tts.ProviderS
 		if err := s.sendEnd(ctx); err != nil {
 			return s.writeError(err, segment.SegmentID)
 		}
+		return nil
 	}
+	s.endSegment(segment.SegmentID, nil)
 	return nil
 }
 
