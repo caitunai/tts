@@ -240,6 +240,101 @@ func TestDefaultServiceOpenSessionWrapsProviderSession(t *testing.T) {
 	}
 }
 
+func TestDefaultServiceOpenSessionDefaultsOutputFromCapabilities(t *testing.T) {
+	provider := &fakeServiceProvider{
+		name: "opus",
+		caps: &ProviderCapabilities{
+			Name:                  "opus",
+			SupportsAppendText:    true,
+			SupportsOggOpusOutput: true,
+			OutputCodecs:          []audio.Codec{audio.CodecOpus},
+			OutputContainers:      []audio.Container{audio.ContainerOgg},
+			OutputSampleRates:     []int{audio.OpusSampleRate},
+			OutputChannels:        []int{audio.DefaultChannels},
+		},
+		providerSession: &fakeProviderSession{id: "sess_provider"},
+	}
+	service := NewService("", fakeRegistry{
+		providers: map[string]Provider{"opus": provider},
+	})
+
+	session, err := service.OpenSession(context.Background(), &OpenSessionRequest{
+		SessionID: "sess_001",
+		Provider:  "opus",
+	})
+	if err != nil {
+		t.Fatalf("OpenSession: %v", err)
+	}
+
+	if provider.seenOpenReq == nil {
+		t.Fatal("provider did not receive open session request")
+	}
+	assertOpusOutput(t, provider.seenOpenReq.Output)
+	assertOpusOutput(t, session.Output())
+}
+
+func TestDefaultServiceDefaultsMinimaxStyleOutputToPCM(t *testing.T) {
+	provider := &fakeServiceProvider{
+		name: "minimax",
+		caps: &ProviderCapabilities{
+			Name:               "minimax",
+			SupportsAppendText: true,
+			SupportsPCMOutput:  true,
+			OutputCodecs:       []audio.Codec{audio.CodecMP3, audio.CodecPCM},
+			OutputContainers:   []audio.Container{audio.ContainerRaw},
+			OutputSampleRates:  []int{audio.DefaultSampleRate},
+			OutputChannels:     []int{audio.DefaultChannels},
+		},
+	}
+	service := NewService("", fakeRegistry{
+		providers: map[string]Provider{"minimax": provider},
+	})
+
+	session, err := service.OpenSession(context.Background(), &OpenSessionRequest{
+		SessionID: "sess_001",
+		Provider:  "minimax",
+	})
+	if err != nil {
+		t.Fatalf("OpenSession: %v", err)
+	}
+
+	if provider.seenOpenReq == nil {
+		t.Fatal("provider did not receive open session request")
+	}
+	assertPCMOutput(t, provider.seenOpenReq.Output)
+	assertPCMOutput(t, session.Output())
+}
+
+func TestDefaultServiceSynthesizeOnceDefaultsOutputFromCapabilities(t *testing.T) {
+	provider := &fakeServiceProvider{
+		name: "pcm",
+		caps: &ProviderCapabilities{
+			Name:              "pcm",
+			SupportsPCMOutput: true,
+			OutputCodecs:      []audio.Codec{audio.CodecPCM},
+			OutputContainers:  []audio.Container{audio.ContainerRaw},
+			OutputSampleRates: []int{audio.DefaultSampleRate},
+			OutputChannels:    []int{audio.DefaultChannels},
+		},
+	}
+	service := NewService("", fakeRegistry{
+		providers: map[string]Provider{"pcm": provider},
+	})
+
+	_, err := service.SynthesizeOnce(context.Background(), &SynthesizeRequest{
+		Provider: "pcm",
+		Text:     "hello",
+	})
+	if err != nil {
+		t.Fatalf("SynthesizeOnce: %v", err)
+	}
+
+	if provider.seenSynthReq == nil {
+		t.Fatal("provider did not receive synthesize request")
+	}
+	assertPCMOutput(t, provider.seenSynthReq.Output)
+}
+
 func TestDefaultServiceRejectsSessionWhenAppendUnsupported(t *testing.T) {
 	service := NewService("", fakeRegistry{
 		providers: map[string]Provider{
@@ -256,6 +351,44 @@ func TestDefaultServiceRejectsNilOpenSessionRequest(t *testing.T) {
 
 	_, err := service.OpenSession(context.Background(), nil)
 	requireTTSErrorCode(t, err, ErrInternal)
+}
+
+func assertOpusOutput(t *testing.T, output audio.OutputConfig) {
+	t.Helper()
+	if output.PreferCodec != audio.CodecOpus {
+		t.Fatalf("PreferCodec = %q, want opus", output.PreferCodec)
+	}
+	if output.SampleRate != audio.OpusSampleRate {
+		t.Fatalf("SampleRate = %d, want %d", output.SampleRate, audio.OpusSampleRate)
+	}
+	if !output.AllowOggOpusDemux {
+		t.Fatal("AllowOggOpusDemux = false, want true")
+	}
+	if !output.AllowRawOpusOutput {
+		t.Fatal("AllowRawOpusOutput = false, want true")
+	}
+}
+
+func assertPCMOutput(t *testing.T, output audio.OutputConfig) {
+	t.Helper()
+	if output.PreferCodec != audio.CodecPCM {
+		t.Fatalf("PreferCodec = %q, want pcm", output.PreferCodec)
+	}
+	if output.SampleRate != audio.DefaultSampleRate {
+		t.Fatalf("SampleRate = %d, want %d", output.SampleRate, audio.DefaultSampleRate)
+	}
+	if output.Channels != audio.DefaultChannels {
+		t.Fatalf("Channels = %d, want %d", output.Channels, audio.DefaultChannels)
+	}
+	if output.FrameMS != audio.DefaultFrameMS {
+		t.Fatalf("FrameMS = %d, want %d", output.FrameMS, audio.DefaultFrameMS)
+	}
+	if output.PCMFormat != audio.PCMFormatS16LE {
+		t.Fatalf("PCMFormat = %q, want s16le", output.PCMFormat)
+	}
+	if !output.AllowPCMFrameOutput {
+		t.Fatal("AllowPCMFrameOutput = false, want true")
+	}
 }
 
 func requireTTSErrorCode(t *testing.T, err error, code ErrorCode) {

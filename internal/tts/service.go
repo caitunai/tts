@@ -58,7 +58,8 @@ func (s *DefaultService) SynthesizeOnce(ctx context.Context, req *SynthesizeRequ
 	if err != nil {
 		return nil, err
 	}
-	if err := validateSynthesizeRequest(req, caps); err != nil {
+	output := resolveOutputConfig(req.Output, caps)
+	if err := validateSynthesizeRequest(req, caps, output); err != nil {
 		return nil, err
 	}
 
@@ -69,14 +70,14 @@ func (s *DefaultService) SynthesizeOnce(ctx context.Context, req *SynthesizeRequ
 		Voice:          req.Voice,
 		GuidanceText:   req.GuidanceText,
 		ReferenceAudio: req.ReferenceAudio,
-		Output:         req.Output,
+		Output:         output,
 		Options:        req.Options,
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	return providerEventsToEvents(providerEvents, req.Output), nil
+	return providerEventsToEvents(providerEvents, output), nil
 }
 
 func (s *DefaultService) OpenSession(ctx context.Context, req *OpenSessionRequest) (Session, error) {
@@ -88,7 +89,8 @@ func (s *DefaultService) OpenSession(ctx context.Context, req *OpenSessionReques
 	if err != nil {
 		return nil, err
 	}
-	if err := validateOpenSessionRequest(req, caps); err != nil {
+	output := resolveOutputConfig(req.Output, caps)
+	if err := validateOpenSessionRequest(req, caps, output); err != nil {
 		return nil, err
 	}
 
@@ -98,14 +100,14 @@ func (s *DefaultService) OpenSession(ctx context.Context, req *OpenSessionReques
 		Voice:          req.Voice,
 		GuidanceText:   req.GuidanceText,
 		ReferenceAudio: req.ReferenceAudio,
-		Output:         req.Output,
+		Output:         output,
 		Options:        req.Options,
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	return newProviderBackedSession(req.Provider, req.Output, providerSession), nil
+	return newProviderBackedSession(req.Provider, output, providerSession), nil
 }
 
 func (s *DefaultService) providerForRequest(ctx context.Context, providerName string) (Provider, *ProviderCapabilities, error) {
@@ -144,18 +146,85 @@ func (s *DefaultService) providerForRequest(ctx context.Context, providerName st
 	return provider, caps, nil
 }
 
-func validateSynthesizeRequest(req *SynthesizeRequest, caps *ProviderCapabilities) error {
+func resolveOutputConfig(output audio.OutputConfig, caps *ProviderCapabilities) audio.OutputConfig {
+	if caps == nil {
+		caps = &ProviderCapabilities{}
+	}
+
+	if output.PreferCodec == "" {
+		output.PreferCodec = audio.CodecAuto
+	}
+	if output.PreferCodec == audio.CodecAuto {
+		output.PreferCodec = defaultOutputCodec(caps)
+	}
+	if output.SampleRate == 0 {
+		output.SampleRate = firstPositive(caps.OutputSampleRates, audio.DefaultSampleRate)
+	}
+	if output.Channels == 0 {
+		output.Channels = firstPositive(caps.OutputChannels, audio.DefaultChannels)
+	}
+	if output.FrameMS == 0 {
+		output.FrameMS = audio.DefaultFrameMS
+	}
+	if output.PCMFormat == "" {
+		output.PCMFormat = audio.PCMFormatS16LE
+	}
+
+	switch output.PreferCodec {
+	case audio.CodecOpus:
+		if !output.AllowOggOpusDemux && !output.AllowRawOpusOutput && !output.AllowPCMFrameOutput {
+			output.AllowOggOpusDemux = true
+			output.AllowRawOpusOutput = true
+		}
+	case audio.CodecPCM:
+		if !output.AllowOggOpusDemux && !output.AllowRawOpusOutput && !output.AllowPCMFrameOutput {
+			output.AllowPCMFrameOutput = true
+		}
+	case audio.CodecAuto:
+		if !output.AllowOggOpusDemux && !output.AllowRawOpusOutput && !output.AllowPCMFrameOutput {
+			output.AllowOggOpusDemux = true
+			output.AllowRawOpusOutput = true
+			output.AllowPCMFrameOutput = true
+		}
+	}
+
+	return output
+}
+
+func defaultOutputCodec(caps *ProviderCapabilities) audio.Codec {
+	if caps.SupportsOggOpusOutput || containsCodec(caps.OutputCodecs, audio.CodecOpus) {
+		return audio.CodecOpus
+	}
+	if caps.SupportsPCMOutput || containsCodec(caps.OutputCodecs, audio.CodecPCM) {
+		return audio.CodecPCM
+	}
+	if len(caps.OutputCodecs) > 0 {
+		return caps.OutputCodecs[0]
+	}
+	return audio.CodecAuto
+}
+
+func firstPositive(values []int, fallback int) int {
+	for _, value := range values {
+		if value > 0 {
+			return value
+		}
+	}
+	return fallback
+}
+
+func validateSynthesizeRequest(req *SynthesizeRequest, caps *ProviderCapabilities, output audio.OutputConfig) error {
 	return validateRequestFeatures(requestFeatureSet{
 		provider:       req.Provider,
 		language:       req.Language,
 		voice:          req.Voice,
 		guidanceText:   req.GuidanceText,
 		referenceAudio: req.ReferenceAudio,
-		output:         req.Output,
+		output:         output,
 	}, caps)
 }
 
-func validateOpenSessionRequest(req *OpenSessionRequest, caps *ProviderCapabilities) error {
+func validateOpenSessionRequest(req *OpenSessionRequest, caps *ProviderCapabilities, output audio.OutputConfig) error {
 	if !caps.SupportsAppendText {
 		return unsupportedFeature(req.Provider, "provider does not support append text sessions")
 	}
@@ -166,7 +235,7 @@ func validateOpenSessionRequest(req *OpenSessionRequest, caps *ProviderCapabilit
 		voice:          req.Voice,
 		guidanceText:   req.GuidanceText,
 		referenceAudio: req.ReferenceAudio,
-		output:         req.Output,
+		output:         output,
 	}, caps)
 }
 
