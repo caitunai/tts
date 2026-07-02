@@ -287,3 +287,28 @@ The platform demuxes the returned Ogg Opus stream into raw Opus packets at
 ```sh
 ffplay local_openai_tts.ogg
 ```
+
+## local_gemini_tts
+
+Run against Gemini TTS through the Interactions HTTP API:
+
+```sh
+export GEMINI_API_KEY="your-api-key"
+go run ./examples/local_gemini_tts \
+  -model gemini-3.1-flash-tts-preview \
+  -voice Kore \
+  -instructions "Say cheerfully:" \
+  -text "Have a wonderful day!" \
+  -audio-idle-timeout 500ms \
+  -out local_gemini_tts_16k_mono_s16le.pcm
+```
+
+Gemini's TTS docs currently expose streaming TTS as base64 24 kHz PCM chunks.
+The platform resamples and splits the audio into 16 kHz / mono / 20 ms PCM
+frames by default. If Gemini delays closing the stream after the final audio
+chunk, `-audio-idle-timeout` controls how quickly the example finishes after
+the last received audio chunk:
+
+```sh
+ffplay -f s16le -ar 16000 -ac 1 local_gemini_tts_16k_mono_s16le.pcm
+```

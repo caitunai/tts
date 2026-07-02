@@ -44,6 +44,7 @@ github.com/caitunai/tts/providers/doubao
 github.com/caitunai/tts/providers/inworld
 github.com/caitunai/tts/providers/fishaudio
 github.com/caitunai/tts/providers/openai
+github.com/caitunai/tts/providers/gemini
 ```
 
 不要在外部应用中 import `github.com/caitunai/tts/internal/...`，Go 会阻止其他 module 访问 `internal` 包。
@@ -264,6 +265,7 @@ for event := range session.Events() {
 | `providers/inworld` | WebSocket | base64 Ogg-wrapped Opus | raw Opus packets, 48 kHz |
 | `providers/fishaudio` | WebSocket | MessagePack Ogg Opus chunks | raw Opus packets, 48 kHz |
 | `providers/openai` | HTTP | Ogg-wrapped Opus | raw Opus packets, 48 kHz |
+| `providers/gemini` | HTTP streaming | 24 kHz raw PCM | 16 kHz mono PCM frames |
 
 ## Provider Config Examples
 
@@ -434,6 +436,26 @@ and `stream_format=audio`. The platform treats the returned Opus audio as
 application layer. `GuidanceText` is mapped to OpenAI's `instructions` field
 for models that support it.
 
+### Gemini TTS
+
+```go
+provider, err := gemini.NewProvider(gemini.Config{
+	Name:         gemini.ProviderName,
+	APIKey:       os.Getenv("GEMINI_API_KEY"),
+	Model:        "gemini-3.1-flash-tts-preview",
+	DefaultVoice: "Kore",
+	// Optional: finish shortly after the last audio chunk if the HTTP stream
+	// stays open without a completion event.
+	AudioIdleTimeout: 500 * time.Millisecond,
+})
+```
+
+Gemini's exact TTS capability is exposed through the Interactions HTTP API. The
+current TTS docs describe streaming audio as base64 24 kHz PCM chunks; Gemini
+Live has WebSocket audio, but it is designed for interactive conversation and
+also outputs raw PCM rather than Opus. The platform therefore normalizes Gemini
+TTS into PCM frames for the application layer.
+
 ## Guidance Text
 
 部分 Provider 支持合成引导词。可以在 session 级别或 segment 级别传入：
@@ -526,6 +548,7 @@ go run ./examples/local_doubao_tts
 go run ./examples/local_inworld_tts
 go run ./examples/local_fishaudio_tts
 go run ./examples/local_openai_tts
+go run ./examples/local_gemini_tts
 ```
 
 ## Development Checks
