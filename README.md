@@ -43,6 +43,7 @@ github.com/caitunai/tts/providers/elevenlabs
 github.com/caitunai/tts/providers/doubao
 github.com/caitunai/tts/providers/inworld
 github.com/caitunai/tts/providers/fishaudio
+github.com/caitunai/tts/providers/openai
 ```
 
 不要在外部应用中 import `github.com/caitunai/tts/internal/...`，Go 会阻止其他 module 访问 `internal` 包。
@@ -262,6 +263,7 @@ for event := range session.Events() {
 | `providers/doubao` | WebSocket | Ogg-wrapped Opus | raw Opus packets, 48 kHz |
 | `providers/inworld` | WebSocket | base64 Ogg-wrapped Opus | raw Opus packets, 48 kHz |
 | `providers/fishaudio` | WebSocket | MessagePack Ogg Opus chunks | raw Opus packets, 48 kHz |
+| `providers/openai` | HTTP | Ogg-wrapped Opus | raw Opus packets, 48 kHz |
 
 ## Provider Config Examples
 
@@ -415,6 +417,23 @@ Fish Audio sends Opus audio chunks that form a continuous Ogg Opus stream, and
 the platform demuxes them into raw Opus packets at 48 kHz for the application
 layer.
 
+### OpenAI Speech API TTS
+
+```go
+provider, err := openai.NewProvider(openai.Config{
+	Name:         openai.ProviderName,
+	APIKey:       os.Getenv("OPENAI_API_KEY"),
+	Model:        "gpt-4o-mini-tts",
+	DefaultVoice: "coral",
+})
+```
+
+The OpenAI provider calls `POST /v1/audio/speech` with `response_format=opus`
+and `stream_format=audio`. The platform treats the returned Opus audio as
+48 kHz Ogg Opus chunks and demuxes them into raw Opus packets for the
+application layer. `GuidanceText` is mapped to OpenAI's `instructions` field
+for models that support it.
+
 ## Guidance Text
 
 部分 Provider 支持合成引导词。可以在 session 级别或 segment 级别传入：
@@ -506,6 +525,7 @@ go run ./examples/local_elevenlabs_tts
 go run ./examples/local_doubao_tts
 go run ./examples/local_inworld_tts
 go run ./examples/local_fishaudio_tts
+go run ./examples/local_openai_tts
 ```
 
 ## Development Checks

@@ -265,3 +265,25 @@ back into an Ogg Opus file for playback:
 ```sh
 ffplay local_fishaudio_tts.ogg
 ```
+
+## local_openai_tts
+
+Run against OpenAI Speech API:
+
+```sh
+export OPENAI_API_KEY="your-api-key"
+go run ./examples/local_openai_tts \
+  -model gpt-4o-mini-tts \
+  -voice coral \
+  -instructions "Speak in a cheerful and positive tone." \
+  -text "Hello, this is OpenAI text to speech." \
+  -out local_openai_tts.ogg
+```
+
+The OpenAI provider requests `response_format=opus` and `stream_format=audio`.
+The platform demuxes the returned Ogg Opus stream into raw Opus packets at
+48 kHz, and this example wraps those packets back into an Ogg Opus file:
+
+```sh
+ffplay local_openai_tts.ogg
+```
