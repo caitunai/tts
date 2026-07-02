@@ -132,6 +132,26 @@ back into an Ogg Opus file for playback:
 ffplay local_microsoft_tts.ogg
 ```
 
+## local_deepgram_tts
+
+Run against Deepgram HTTP TTS API:
+
+```sh
+export DEEPGRAM_API_KEY="your-api-key"
+go run ./examples/local_deepgram_tts \
+  -model aura-asteria-en \
+  -text "Hello, welcome to Deepgram text to speech." \
+  -out local_deepgram_tts.ogg
+```
+
+Deepgram returns Ogg-wrapped Opus at 48 kHz. The platform demuxes it into raw
+Opus packets for the application layer, and this example wraps those packets
+back into an Ogg Opus file for playback:
+
+```sh
+ffplay local_deepgram_tts.ogg
+```
+
 ## local_elevenlabs_tts
 
 Run against ElevenLabs realtime WebSocket TTS API:

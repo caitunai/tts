@@ -35,6 +35,7 @@ github.com/caitunai/tts/provider
 github.com/caitunai/tts/providers/vllm
 github.com/caitunai/tts/providers/qwenhttp
 github.com/caitunai/tts/providers/qwenrealtime
+github.com/caitunai/tts/providers/deepgram
 github.com/caitunai/tts/providers/microsoft
 github.com/caitunai/tts/providers/minimax
 github.com/caitunai/tts/providers/elevenlabs
@@ -251,6 +252,7 @@ for event := range session.Events() {
 | `providers/vllm` | HTTP chunked | 24 kHz PCM | 16 kHz mono PCM frames |
 | `providers/qwenhttp` | HTTP SSE | base64 PCM | 16 kHz mono PCM frames |
 | `providers/qwenrealtime` | WebSocket | Ogg-wrapped Opus | raw Opus packets, 48 kHz |
+| `providers/deepgram` | HTTP | Ogg-wrapped Opus | raw Opus packets, 48 kHz |
 | `providers/microsoft` | HTTP | Ogg-wrapped Opus | raw Opus packets, 48 kHz |
 | `providers/minimax` | WebSocket | MP3 | 16 kHz mono PCM frames |
 | `providers/elevenlabs` | WebSocket | base64 Ogg-wrapped Opus | raw Opus packets, 48 kHz |
@@ -306,6 +308,21 @@ provider, err := microsoft.NewProvider(microsoft.Config{
 	DefaultLanguage: "zh-CN",
 })
 ```
+
+### Deepgram HTTP TTS
+
+```go
+provider, err := deepgram.NewProvider(deepgram.Config{
+	Name:   deepgram.ProviderName,
+	APIKey: os.Getenv("DEEPGRAM_API_KEY"),
+	Model:  "aura-asteria-en",
+})
+```
+
+The Deepgram provider requests `encoding=opus` and `container=ogg`. Deepgram
+does not accept `sample_rate` when `encoding=opus`; the platform still treats
+the returned Opus audio as 48 kHz. Request `Voice` can be used to override the
+Deepgram `model` query parameter for a single synthesis call.
 
 ### Minimax Realtime TTS
 
@@ -444,6 +461,7 @@ if event.Type == tts.EventError {
 ```sh
 go run ./examples/local_qwen_tts
 go run ./examples/local_qwen_realtime_tts
+go run ./examples/local_deepgram_tts
 go run ./examples/local_minimax_tts
 go run ./examples/local_microsoft_tts
 go run ./examples/local_elevenlabs_tts
