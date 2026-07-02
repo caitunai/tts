@@ -152,6 +152,28 @@ back into an Ogg Opus file for playback:
 ffplay local_deepgram_tts.ogg
 ```
 
+## local_cartesia_tts
+
+Run against Cartesia WebSocket TTS API:
+
+```sh
+export CARTESIA_API_KEY="your-api-key"
+export CARTESIA_TTS_VOICE="your-voice-id"
+go run ./examples/local_cartesia_tts \
+  -model sonic-3.5 \
+  -language en \
+  -text "Hello, this is Cartesia text to speech." \
+  -append-text "This is a second segment in the same websocket session." \
+  -out local_cartesia_tts_16k_mono_s16le.pcm
+```
+
+Cartesia returns base64 raw PCM over WebSocket. The platform emits
+16 kHz / mono / 20 ms PCM frames by default:
+
+```sh
+ffplay -f s16le -ar 16000 -ac 1 local_cartesia_tts_16k_mono_s16le.pcm
+```
+
 ## local_elevenlabs_tts
 
 Run against ElevenLabs realtime WebSocket TTS API:

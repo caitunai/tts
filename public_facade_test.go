@@ -6,6 +6,7 @@ import (
 	tts "github.com/caitunai/tts"
 	"github.com/caitunai/tts/audio"
 	"github.com/caitunai/tts/provider"
+	"github.com/caitunai/tts/providers/cartesia"
 	"github.com/caitunai/tts/providers/deepgram"
 	"github.com/caitunai/tts/providers/doubao"
 	"github.com/caitunai/tts/providers/elevenlabs"
@@ -17,6 +18,7 @@ import (
 	"github.com/caitunai/tts/providers/vllm"
 )
 
+var _ tts.Provider = (*cartesia.Provider)(nil)
 var _ tts.Provider = (*deepgram.Provider)(nil)
 var _ tts.Provider = (*doubao.Provider)(nil)
 var _ tts.Provider = (*elevenlabs.Provider)(nil)
@@ -69,6 +71,13 @@ func TestProviderNameConstantsMatchDefaults(t *testing.T) {
 		want string
 		new  func() (tts.Provider, error)
 	}{
+		{
+			name: "cartesia",
+			want: cartesia.ProviderName,
+			new: func() (tts.Provider, error) {
+				return cartesia.NewProvider(cartesia.Config{})
+			},
+		},
 		{
 			name: "deepgram",
 			want: deepgram.ProviderName,

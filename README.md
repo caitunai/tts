@@ -35,6 +35,7 @@ github.com/caitunai/tts/provider
 github.com/caitunai/tts/providers/vllm
 github.com/caitunai/tts/providers/qwenhttp
 github.com/caitunai/tts/providers/qwenrealtime
+github.com/caitunai/tts/providers/cartesia
 github.com/caitunai/tts/providers/deepgram
 github.com/caitunai/tts/providers/microsoft
 github.com/caitunai/tts/providers/minimax
@@ -252,6 +253,7 @@ for event := range session.Events() {
 | `providers/vllm` | HTTP chunked | 24 kHz PCM | 16 kHz mono PCM frames |
 | `providers/qwenhttp` | HTTP SSE | base64 PCM | 16 kHz mono PCM frames |
 | `providers/qwenrealtime` | WebSocket | Ogg-wrapped Opus | raw Opus packets, 48 kHz |
+| `providers/cartesia` | WebSocket | base64 raw PCM | 16 kHz mono PCM frames |
 | `providers/deepgram` | HTTP | Ogg-wrapped Opus | raw Opus packets, 48 kHz |
 | `providers/microsoft` | HTTP | Ogg-wrapped Opus | raw Opus packets, 48 kHz |
 | `providers/minimax` | WebSocket | MP3 | 16 kHz mono PCM frames |
@@ -323,6 +325,21 @@ The Deepgram provider requests `encoding=opus` and `container=ogg`. Deepgram
 does not accept `sample_rate` when `encoding=opus`; the platform still treats
 the returned Opus audio as 48 kHz. Request `Voice` can be used to override the
 Deepgram `model` query parameter for a single synthesis call.
+
+### Cartesia WebSocket TTS
+
+```go
+provider, err := cartesia.NewProvider(cartesia.Config{
+	Name:            cartesia.ProviderName,
+	APIKey:          os.Getenv("CARTESIA_API_KEY"),
+	Model:           "sonic-3.5",
+	DefaultVoice:    "your-voice-id",
+	DefaultLanguage: "en",
+})
+```
+
+The Cartesia provider requests `container=raw`, `encoding=pcm_s16le`, and emits
+16 kHz / mono / 20 ms PCM frames by default.
 
 ### Minimax Realtime TTS
 
@@ -461,6 +478,7 @@ if event.Type == tts.EventError {
 ```sh
 go run ./examples/local_qwen_tts
 go run ./examples/local_qwen_realtime_tts
+go run ./examples/local_cartesia_tts
 go run ./examples/local_deepgram_tts
 go run ./examples/local_minimax_tts
 go run ./examples/local_microsoft_tts
