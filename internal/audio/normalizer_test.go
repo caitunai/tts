@@ -47,6 +47,47 @@ func TestNormalizerConvertsOggOpusToRawOpusFrames(t *testing.T) {
 	}
 }
 
+func TestNormalizerPassesRawOpusPackets(t *testing.T) {
+	normalizer, err := NewNormalizer(NormalizerConfig{
+		RequestID: "req",
+		SegmentID: "seg",
+		Output: OutputConfig{
+			SampleRate: OpusSampleRate,
+			Channels:   1,
+			FrameMS:    20,
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewNormalizer: %v", err)
+	}
+
+	frames, err := normalizer.Push(Chunk{
+		Codec:      CodecOpus,
+		Container:  ContainerRaw,
+		SampleRate: OpusSampleRate,
+		Channels:   1,
+		Data:       []byte("raw-opus-packet"),
+	})
+	if err != nil {
+		t.Fatalf("Push: %v", err)
+	}
+	if len(frames) != 1 {
+		t.Fatalf("frames = %d, want 1", len(frames))
+	}
+	if frames[0].Codec != CodecOpus {
+		t.Fatalf("Codec = %q, want %q", frames[0].Codec, CodecOpus)
+	}
+	if frames[0].Container != ContainerRaw {
+		t.Fatalf("Container = %q, want %q", frames[0].Container, ContainerRaw)
+	}
+	if frames[0].SampleRate != OpusSampleRate {
+		t.Fatalf("SampleRate = %d, want %d", frames[0].SampleRate, OpusSampleRate)
+	}
+	if string(frames[0].Data) != "raw-opus-packet" {
+		t.Fatalf("Data = %q, want raw-opus-packet", string(frames[0].Data))
+	}
+}
+
 func TestNormalizerConvertsWAVToPCMFrames(t *testing.T) {
 	wav := makeTestWAV(t, 16000, 1, []byte{1, 2, 3})
 

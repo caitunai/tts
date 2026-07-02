@@ -241,3 +241,27 @@ an Ogg Opus file for playback:
 ```sh
 ffplay local_inworld_tts.ogg
 ```
+
+## local_fishaudio_tts
+
+Run against Fish Audio WebSocket TTS API:
+
+```sh
+export FISHAUDIO_API_KEY="your-api-key"
+export FISHAUDIO_TTS_VOICE="your-reference-id"
+go run ./examples/local_fishaudio_tts \
+  -model s1 \
+  -language en \
+  -text "Hello, this is Fish Audio text to speech." \
+  -append-text "This is the second segment, used to verify append text." \
+  -out local_fishaudio_tts.ogg
+```
+
+Fish Audio uses MessagePack over WebSocket and returns Opus chunks that form a
+continuous Ogg Opus stream. The platform demuxes those chunks into raw Opus
+packets at 48 kHz for the application layer, and this example wraps the packets
+back into an Ogg Opus file for playback:
+
+```sh
+ffplay local_fishaudio_tts.ogg
+```

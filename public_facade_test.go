@@ -10,6 +10,7 @@ import (
 	"github.com/caitunai/tts/providers/deepgram"
 	"github.com/caitunai/tts/providers/doubao"
 	"github.com/caitunai/tts/providers/elevenlabs"
+	"github.com/caitunai/tts/providers/fishaudio"
 	"github.com/caitunai/tts/providers/inworld"
 	"github.com/caitunai/tts/providers/microsoft"
 	"github.com/caitunai/tts/providers/minimax"
@@ -22,6 +23,7 @@ var _ tts.Provider = (*cartesia.Provider)(nil)
 var _ tts.Provider = (*deepgram.Provider)(nil)
 var _ tts.Provider = (*doubao.Provider)(nil)
 var _ tts.Provider = (*elevenlabs.Provider)(nil)
+var _ tts.Provider = (*fishaudio.Provider)(nil)
 var _ tts.Provider = (*inworld.Provider)(nil)
 var _ tts.Provider = (*microsoft.Provider)(nil)
 var _ tts.Provider = (*minimax.Provider)(nil)
@@ -97,6 +99,13 @@ func TestProviderNameConstantsMatchDefaults(t *testing.T) {
 			want: elevenlabs.ProviderName,
 			new: func() (tts.Provider, error) {
 				return elevenlabs.NewProvider(elevenlabs.Config{Endpoint: "wss://example.test/:voice_id"})
+			},
+		},
+		{
+			name: "fishaudio",
+			want: fishaudio.ProviderName,
+			new: func() (tts.Provider, error) {
+				return fishaudio.NewProvider(fishaudio.Config{})
 			},
 		},
 		{

@@ -42,6 +42,7 @@ github.com/caitunai/tts/providers/minimax
 github.com/caitunai/tts/providers/elevenlabs
 github.com/caitunai/tts/providers/doubao
 github.com/caitunai/tts/providers/inworld
+github.com/caitunai/tts/providers/fishaudio
 ```
 
 不要在外部应用中 import `github.com/caitunai/tts/internal/...`，Go 会阻止其他 module 访问 `internal` 包。
@@ -260,6 +261,7 @@ for event := range session.Events() {
 | `providers/elevenlabs` | WebSocket | base64 Ogg-wrapped Opus | raw Opus packets, 48 kHz |
 | `providers/doubao` | WebSocket | Ogg-wrapped Opus | raw Opus packets, 48 kHz |
 | `providers/inworld` | WebSocket | base64 Ogg-wrapped Opus | raw Opus packets, 48 kHz |
+| `providers/fishaudio` | WebSocket | MessagePack Ogg Opus chunks | raw Opus packets, 48 kHz |
 
 ## Provider Config Examples
 
@@ -395,6 +397,24 @@ The Inworld provider requests `OGG_OPUS` at 48 kHz. The API key is sent as the
 websocket query parameter `authorization=Basic ...`, matching the Inworld TTS
 WebSocket documentation.
 
+### Fish Audio WebSocket TTS
+
+```go
+provider, err := fishaudio.NewProvider(fishaudio.Config{
+	Name:            fishaudio.ProviderName,
+	APIKey:          os.Getenv("FISHAUDIO_API_KEY"),
+	Model:           "s1",
+	DefaultVoice:    "your-reference-id",
+	DefaultLanguage: "en",
+	Latency:         "normal",
+})
+```
+
+The Fish Audio provider uses MessagePack over WebSocket and requests `format=opus`.
+Fish Audio sends Opus audio chunks that form a continuous Ogg Opus stream, and
+the platform demuxes them into raw Opus packets at 48 kHz for the application
+layer.
+
 ## Guidance Text
 
 部分 Provider 支持合成引导词。可以在 session 级别或 segment 级别传入：
@@ -485,6 +505,7 @@ go run ./examples/local_microsoft_tts
 go run ./examples/local_elevenlabs_tts
 go run ./examples/local_doubao_tts
 go run ./examples/local_inworld_tts
+go run ./examples/local_fishaudio_tts
 ```
 
 ## Development Checks

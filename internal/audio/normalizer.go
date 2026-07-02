@@ -92,6 +92,9 @@ func NewNormalizer(cfg NormalizerConfig) (*Normalizer, error) {
 func (n *Normalizer) Push(chunk Chunk) ([]Frame, error) {
 	switch chunk.Codec {
 	case CodecOpus:
+		if chunk.Container == ContainerRaw {
+			return n.rawOpusToFrame(chunk.Data), nil
+		}
 		if chunk.Container != ContainerOgg {
 			return nil, fmt.Errorf("unsupported opus container %q", chunk.Container)
 		}
@@ -164,6 +167,32 @@ func (n *Normalizer) opusPacketsToFrames(packets []OpusPacket) []Frame {
 		n.globalSeq++
 	}
 	return frames
+}
+
+func (n *Normalizer) rawOpusToFrame(data []byte) []Frame {
+	if len(data) == 0 {
+		return nil
+	}
+	packet := make([]byte, len(data))
+	copy(packet, data)
+	frame := Frame{
+		RequestID:        n.cfg.RequestID,
+		SessionID:        n.cfg.SessionID,
+		SegmentID:        n.cfg.SegmentID,
+		Codec:            CodecOpus,
+		Container:        ContainerRaw,
+		SampleRate:       OpusSampleRate,
+		Channels:         n.cfg.Output.Channels,
+		PacketDurationMS: DefaultFrameMS,
+		Seq:              n.seq,
+		GlobalSeq:        n.globalSeq,
+		TimestampMS:      n.timestampMS,
+		Data:             packet,
+	}
+	n.seq++
+	n.globalSeq++
+	n.timestampMS += int64(DefaultFrameMS)
+	return []Frame{frame}
 }
 
 func (n *Normalizer) framesFromPCMData(pcm PCMData) ([]Frame, error) {
