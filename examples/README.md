@@ -176,3 +176,26 @@ packets back into an Ogg Opus file for playback:
 ```sh
 ffplay local_doubao_tts.ogg
 ```
+
+## local_inworld_tts
+
+Run against Inworld AI bidirectional WebSocket TTS API:
+
+```sh
+export INWORLD_API_KEY="your-api-key"
+export INWORLD_TTS_VOICE="your-voice-id"
+go run ./examples/local_inworld_tts \
+  -model inworld-tts-2 \
+  -language en-US \
+  -text "Hello, how is the weather today?" \
+  -append-text "This is the second text segment, used to verify append text." \
+  -out local_inworld_tts.ogg
+```
+
+Inworld returns Ogg-wrapped Opus. The provider exposes raw Opus packets at
+48 kHz to the application layer, and this example wraps those packets back into
+an Ogg Opus file for playback:
+
+```sh
+ffplay local_inworld_tts.ogg
+```

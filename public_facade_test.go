@@ -8,6 +8,7 @@ import (
 	"github.com/caitunai/tts/provider"
 	"github.com/caitunai/tts/providers/doubao"
 	"github.com/caitunai/tts/providers/elevenlabs"
+	"github.com/caitunai/tts/providers/inworld"
 	"github.com/caitunai/tts/providers/microsoft"
 	"github.com/caitunai/tts/providers/minimax"
 	"github.com/caitunai/tts/providers/qwenhttp"
@@ -17,6 +18,7 @@ import (
 
 var _ tts.Provider = (*doubao.Provider)(nil)
 var _ tts.Provider = (*elevenlabs.Provider)(nil)
+var _ tts.Provider = (*inworld.Provider)(nil)
 var _ tts.Provider = (*microsoft.Provider)(nil)
 var _ tts.Provider = (*minimax.Provider)(nil)
 var _ tts.Provider = (*qwenhttp.Provider)(nil)
@@ -77,6 +79,13 @@ func TestProviderNameConstantsMatchDefaults(t *testing.T) {
 			want: elevenlabs.ProviderName,
 			new: func() (tts.Provider, error) {
 				return elevenlabs.NewProvider(elevenlabs.Config{Endpoint: "wss://example.test/:voice_id"})
+			},
+		},
+		{
+			name: "inworld",
+			want: inworld.ProviderName,
+			new: func() (tts.Provider, error) {
+				return inworld.NewProvider(inworld.Config{})
 			},
 		},
 		{

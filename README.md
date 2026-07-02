@@ -39,6 +39,7 @@ github.com/caitunai/tts/providers/microsoft
 github.com/caitunai/tts/providers/minimax
 github.com/caitunai/tts/providers/elevenlabs
 github.com/caitunai/tts/providers/doubao
+github.com/caitunai/tts/providers/inworld
 ```
 
 不要在外部应用中 import `github.com/caitunai/tts/internal/...`，Go 会阻止其他 module 访问 `internal` 包。
@@ -254,6 +255,7 @@ for event := range session.Events() {
 | `providers/minimax` | WebSocket | MP3 | 16 kHz mono PCM frames |
 | `providers/elevenlabs` | WebSocket | base64 Ogg-wrapped Opus | raw Opus packets, 48 kHz |
 | `providers/doubao` | WebSocket | Ogg-wrapped Opus | raw Opus packets, 48 kHz |
+| `providers/inworld` | WebSocket | base64 Ogg-wrapped Opus | raw Opus packets, 48 kHz |
 
 ## Provider Config Examples
 
@@ -342,6 +344,23 @@ provider, err := doubao.NewProvider(doubao.Config{
 })
 ```
 
+### Inworld AI Bidirectional WebSocket TTS
+
+```go
+provider, err := inworld.NewProvider(inworld.Config{
+	Name:            inworld.ProviderName,
+	APIKey:          os.Getenv("INWORLD_API_KEY"),
+	Model:           "inworld-tts-2",
+	DefaultVoice:    "Dennis",
+	DefaultLanguage: "en-US",
+	AutoMode:        true,
+})
+```
+
+The Inworld provider requests `OGG_OPUS` at 48 kHz. The API key is sent as the
+websocket query parameter `authorization=Basic ...`, matching the Inworld TTS
+WebSocket documentation.
+
 ## Guidance Text
 
 部分 Provider 支持合成引导词。可以在 session 级别或 segment 级别传入：
@@ -429,6 +448,7 @@ go run ./examples/local_minimax_tts
 go run ./examples/local_microsoft_tts
 go run ./examples/local_elevenlabs_tts
 go run ./examples/local_doubao_tts
+go run ./examples/local_inworld_tts
 ```
 
 ## Development Checks
