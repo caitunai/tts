@@ -23,6 +23,8 @@ type ProviderCapabilities = internal.ProviderCapabilities
 type ServiceCapabilities = internal.ServiceCapabilities
 type VoiceInfo = internal.VoiceInfo
 type LanguageInfo = internal.LanguageInfo
+type Language = internal.Language
+type LanguageMatchLevel = internal.LanguageMatchLevel
 
 type EventType = internal.EventType
 type Event = internal.Event
@@ -101,6 +103,25 @@ const (
 	SegmentStateFailed         = internal.SegmentStateFailed
 )
 
+const (
+	LanguageMatchLanguage       = internal.LanguageMatchLanguage
+	LanguageMatchLanguageScript = internal.LanguageMatchLanguageScript
+	LanguageMatchLanguageRegion = internal.LanguageMatchLanguageRegion
+	LanguageMatchExact          = internal.LanguageMatchExact
+)
+
 func NewService(name string, registry ProviderRegistry) *DefaultService {
 	return internal.NewService(name, registry)
+}
+
+func NormalizeLanguage(input string) string {
+	return internal.NormalizeLanguage(input)
+}
+
+func ParseLanguage(input string) Language {
+	return internal.ParseLanguage(input)
+}
+
+func PrimaryLanguage(input string) string {
+	return internal.PrimaryLanguage(input)
 }

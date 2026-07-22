@@ -183,6 +183,26 @@ func TestCapabilitiesWithoutVoiceOrLanguageRestriction(t *testing.T) {
 	}
 }
 
+func TestNormalizeLanguage(t *testing.T) {
+	tests := map[string]string{
+		"zh":      "Chinese",
+		"Chinese": "Chinese",
+		"zho":     "Chinese",
+		"cmn-CN":  "Chinese",
+		"en":      "English",
+		"eng-US":  "English",
+		"deu":     "German",
+		"jpn-JP":  "Japanese",
+		"unknown": "unknown",
+	}
+
+	for input, want := range tests {
+		if got := normalizeLanguage(input); got != want {
+			t.Fatalf("normalizeLanguage(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
 func collectProviderEvents(events <-chan *tts.ProviderEvent) []*tts.ProviderEvent {
 	var got []*tts.ProviderEvent
 	for event := range events {

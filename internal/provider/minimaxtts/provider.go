@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/caitunai/tts/internal/audio"
+	langnorm "github.com/caitunai/tts/internal/language"
 	"github.com/caitunai/tts/internal/tts"
 	"github.com/gorilla/websocket"
 )
@@ -242,91 +243,51 @@ func (p *Provider) OpenSession(ctx context.Context, req *tts.ProviderOpenSession
 	return session, nil
 }
 
+var providerLanguageMapper = langnorm.NewMapper(
+	langnorm.Map(Chinese, langnorm.MatchLanguage, "zh", "cmn"),
+	langnorm.Map(Yue, langnorm.MatchLanguage, "yue"),
+	langnorm.Map(English, langnorm.MatchLanguage, "en"),
+	langnorm.Map(Arabic, langnorm.MatchLanguage, "ar", "arz"),
+	langnorm.Map(Russian, langnorm.MatchLanguage, "ru"),
+	langnorm.Map(Spanish, langnorm.MatchLanguage, "es"),
+	langnorm.Map(French, langnorm.MatchLanguage, "fr"),
+	langnorm.Map(Portuguese, langnorm.MatchLanguage, "pt"),
+	langnorm.Map(German, langnorm.MatchLanguage, "de"),
+	langnorm.Map(Turkish, langnorm.MatchLanguage, "tr"),
+	langnorm.Map(Dutch, langnorm.MatchLanguage, "nl"),
+	langnorm.Map(Ukrainian, langnorm.MatchLanguage, "uk"),
+	langnorm.Map(Vietnamese, langnorm.MatchLanguage, "vi"),
+	langnorm.Map(Indonesian, langnorm.MatchLanguage, "id"),
+	langnorm.Map(Japanese, langnorm.MatchLanguage, "ja"),
+	langnorm.Map(Italian, langnorm.MatchLanguage, "it"),
+	langnorm.Map(Korean, langnorm.MatchLanguage, "ko"),
+	langnorm.Map(Thai, langnorm.MatchLanguage, "th"),
+	langnorm.Map(Polish, langnorm.MatchLanguage, "pl"),
+	langnorm.Map(Romanian, langnorm.MatchLanguage, "ro"),
+	langnorm.Map(Greek, langnorm.MatchLanguage, "el"),
+	langnorm.Map(Czech, langnorm.MatchLanguage, "cs"),
+	langnorm.Map(Finnish, langnorm.MatchLanguage, "fi"),
+	langnorm.Map(Hindi, langnorm.MatchLanguage, "hi"),
+	langnorm.Map(Bulgarian, langnorm.MatchLanguage, "bg"),
+	langnorm.Map(Danish, langnorm.MatchLanguage, "da"),
+	langnorm.Map(Hebrew, langnorm.MatchLanguage, "he"),
+	langnorm.Map(Malay, langnorm.MatchLanguage, "ms"),
+	langnorm.Map(Persian, langnorm.MatchLanguage, "fa"),
+	langnorm.Map(Slovak, langnorm.MatchLanguage, "sk"),
+	langnorm.Map(Swedish, langnorm.MatchLanguage, "sv"),
+	langnorm.Map(Croatian, langnorm.MatchLanguage, "hr"),
+	langnorm.Map(Filipino, langnorm.MatchLanguage, "fil", "tl"),
+	langnorm.Map(Hungarian, langnorm.MatchLanguage, "hu"),
+	langnorm.Map(Nynorsk, langnorm.MatchLanguage, "nn"),
+	langnorm.Map(Norwegian, langnorm.MatchLanguage, "no"),
+	langnorm.Map(Slovenian, langnorm.MatchLanguage, "sl"),
+	langnorm.Map(Catalan, langnorm.MatchLanguage, "ca"),
+	langnorm.Map(Tamil, langnorm.MatchLanguage, "ta"),
+	langnorm.Map(Afrikaans, langnorm.MatchLanguage, "af"),
+)
+
 func rewriteLang(lang string) string {
-	switch strings.ToLower(lang) {
-	case "zh", "chinese":
-		return Chinese
-	case "yue":
-		return Yue
-	case "en", "english":
-		return English
-	case "ar", "arz", "arabic":
-		return Arabic
-	case "ru", "russian":
-		return Russian
-	case "es", "spanish":
-		return Spanish
-	case "fr", "french":
-		return French
-	case "pt", "portuguese":
-		return Portuguese
-	case "de", "german":
-		return German
-	case "tr", "turkish":
-		return Turkish
-	case "nl", "dutch":
-		return Dutch
-	case "uk", "ukrainian":
-		return Ukrainian
-	case "vi", "vietnamese":
-		return Vietnamese
-	case "id", "indonesian":
-		return Indonesian
-	case "ja", "japanese":
-		return Japanese
-	case "it", "italian":
-		return Italian
-	case "ko", "korean":
-		return Korean
-	case "th", "thai":
-		return Thai
-	case "pl", "polish":
-		return Polish
-	case "ro", "romanian":
-		return Romanian
-	case "el", "greek":
-		return Greek
-	case "cs", "czech":
-		return Czech
-	case "fi", "finnish":
-		return Finnish
-	case "hi", "hindi":
-		return Hindi
-	case "bg", "bulgarian":
-		return Bulgarian
-	case "da", "danish":
-		return Danish
-	case "he", "hebrew":
-		return Hebrew
-	case "ms", "malay":
-		return Malay
-	case "fa", "persian":
-		return Persian
-	case "sk", "slovak":
-		return Slovak
-	case "sv", "swedish":
-		return Swedish
-	case "hr", "croatian":
-		return Croatian
-	case "tl", "filipino":
-		return Filipino
-	case "hu", "hungarian":
-		return Hungarian
-	case "nn", "nynorsk":
-		return Nynorsk
-	case "no", "norwegian":
-		return Norwegian
-	case "sl", "slovenian":
-		return Slovenian
-	case "ca", "catalan":
-		return Catalan
-	case "ta", "tamil":
-		return Tamil
-	case "af", "afrikaans":
-		return Afrikaans
-	default:
-		return Auto
-	}
+	return providerLanguageMapper.Resolve(lang, Auto)
 }
 
 func valueOrDefault(value, fallback string) string {

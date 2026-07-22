@@ -71,6 +71,29 @@ func TestProviderRejectsInvalidOpusSampleRate(t *testing.T) {
 	}
 }
 
+func TestNormalizeLanguage(t *testing.T) {
+	tests := map[string]string{
+		"zh":      "zh",
+		"zh-CN":   "zh",
+		"Chinese": "zh",
+		"zho":     "zh",
+		"cmn-CN":  "zh",
+		"en":      "en",
+		"eng-US":  "en",
+		"ja":      "ja",
+		"jpn-JP":  "ja",
+		"ko":      "ko",
+		"kor-KR":  "ko",
+		"unknown": "unknown",
+	}
+
+	for input, want := range tests {
+		if got := normalizeLanguage(input); got != want {
+			t.Fatalf("normalizeLanguage(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
 func TestProviderRejectsSynthesizeOnce(t *testing.T) {
 	provider, err := NewProvider(Config{Endpoint: "wss://example.test/api-ws/v1/inference/"})
 	if err != nil {

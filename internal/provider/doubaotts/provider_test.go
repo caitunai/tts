@@ -134,6 +134,12 @@ func TestServiceSessionAppendsTwoSegments(t *testing.T) {
 	if got := additions["section_id"]; got != "section-001" {
 		t.Fatalf("section_id = %#v, want section-001", got)
 	}
+	if got := additions["enable_language_detector"]; got != true {
+		t.Fatalf("enable_language_detector = %#v, want true", got)
+	}
+	if _, ok := additions["explicit_language"]; ok {
+		t.Fatalf("explicit_language = %#v, want field omitted", additions["explicit_language"])
+	}
 
 	events := session.Events()
 	if err := session.AppendText(context.Background(), &platformtts.SegmentRequest{
@@ -197,26 +203,6 @@ func TestServiceSessionAppendsTwoSegments(t *testing.T) {
 	}
 	if got := server.header.Get("X-Api-Resource-Id"); got != "seed-tts-2.0" {
 		t.Fatalf("X-Api-Resource-Id = %q, want seed-tts-2.0", got)
-	}
-}
-
-func TestNormalizeDoubaoLanguage(t *testing.T) {
-	tests := map[string]string{
-		"zh":      "zh-cn",
-		"zh-cn":   "zh-cn",
-		"en":      "en",
-		"ja":      "ja",
-		"ko":      "ko",
-		"es":      "es-mx",
-		"id":      "id",
-		"pt":      "pt-br",
-		"unknown": "",
-	}
-
-	for input, want := range tests {
-		if got := normalizeDoubaoLanguage(input); got != want {
-			t.Fatalf("normalizeDoubaoLanguage(%q) = %q, want %q", input, got, want)
-		}
 	}
 }
 

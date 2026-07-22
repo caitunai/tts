@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/caitunai/tts/internal/audio"
+	langnorm "github.com/caitunai/tts/internal/language"
 	"github.com/caitunai/tts/internal/tts"
 	"github.com/go-resty/resty/v2"
 )
@@ -29,7 +30,9 @@ type Config struct {
 	Endpoint        string
 	SubscriptionKey string
 
-	DefaultVoice    string
+	DefaultVoice string
+	// DefaultLanguage is used only when Language is omitted and the voice name
+	// does not contain a BCP-47 locale.
 	DefaultLanguage string
 	OutputFormat    string
 
@@ -62,9 +65,6 @@ func NewProvider(cfg Config) (*Provider, error) {
 			Message:  "microsoft tts endpoint is required",
 			Provider: cfg.Name,
 		}
-	}
-	if cfg.DefaultLanguage == "" {
-		cfg.DefaultLanguage = defaultLanguage
 	}
 	if cfg.OutputFormat == "" {
 		cfg.OutputFormat = defaultOutputFormat
@@ -208,8 +208,9 @@ func (p *Provider) stream(ctx context.Context, req *tts.ProviderSynthesizeReques
 }
 
 func (p *Provider) doRequest(ctx context.Context, req *tts.ProviderSynthesizeRequest) (*resty.Response, error) {
-	language := normalizeLanguage(valueOrDefault(req.Language, p.defaultLanguage))
-	body := buildSSML(language, valueOrDefault(req.Voice, p.defaultVoice), req.Text)
+	voice := valueOrDefault(req.Voice, p.defaultVoice)
+	language := resolveLanguage(req.Language, voice, p.defaultLanguage)
+	body := buildSSML(language, voice, req.Text)
 
 	request := p.client.R().
 		SetContext(ctx).
@@ -294,23 +295,41 @@ func valueOrDefault(value, fallback string) string {
 	return fallback
 }
 
-func normalizeLanguage(lang string) string {
-	switch strings.ToLower(lang) {
-	case "zh", "zh-cn", "chinese":
-		return "zh-CN"
-	case "en", "en-us", "english":
-		return "en-US"
-	case "ja", "ja-jp", "japanese":
-		return "ja-JP"
-	case "ko", "ko-kr", "korean":
-		return "ko-KR"
-	case "de", "de-de", "german":
-		return "de-DE"
-	case "fr", "fr-fr", "french":
-		return "fr-FR"
-	case "es", "es-es", "spanish":
-		return "es-ES"
-	default:
-		return lang
+func resolveLanguage(requestLanguage, voice, configuredDefault string) string {
+	voiceLanguage := languageFromVoice(voice)
+	if strings.TrimSpace(requestLanguage) != "" {
+		requested := langnorm.Parse(requestLanguage)
+		if requested.Region() == "" && voiceLanguage != "" {
+			fromVoice := langnorm.Parse(voiceLanguage)
+			if requested.Matches(fromVoice, langnorm.MatchLanguage) {
+				return voiceLanguage
+			}
+		}
+		return requested.String()
 	}
+	if voiceLanguage != "" {
+		return voiceLanguage
+	}
+	if strings.TrimSpace(configuredDefault) != "" {
+		return langnorm.Normalize(configuredDefault)
+	}
+	return defaultLanguage
+}
+
+func languageFromVoice(voice string) string {
+	parts := strings.Split(strings.TrimSpace(voice), "-")
+	if len(parts) < 2 {
+		return ""
+	}
+
+	for _, end := range []int{2, 3} {
+		if len(parts) < end {
+			continue
+		}
+		candidate := langnorm.Parse(strings.Join(parts[:end], "-"))
+		if candidate.ISO6393() != "" && candidate.Region() != "" {
+			return candidate.String()
+		}
+	}
+	return ""
 }

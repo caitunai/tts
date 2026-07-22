@@ -96,7 +96,7 @@ func TestServiceSessionAppendsTwoSegments(t *testing.T) {
 		SessionID: "sess_001",
 		Provider:  "inworld",
 		Voice:     "Dennis",
-		Language:  "en-US",
+		Language:  "spa_MX",
 	})
 	if err != nil {
 		t.Fatalf("OpenSession: %v", err)
@@ -128,13 +128,16 @@ func TestServiceSessionAppendsTwoSegments(t *testing.T) {
 	if !create.Create.AutoMode {
 		t.Fatal("auto mode = false, want true")
 	}
+	if create.Create.Language != "es-MX" {
+		t.Fatalf("language = %q, want normalized es-MX", create.Create.Language)
+	}
 
 	events := session.Events()
 	if err := session.AppendText(context.Background(), &tts.SegmentRequest{
 		SegmentID: "seg_001",
 		Text:      "Hello first",
 		Voice:     "Dennis",
-		Language:  "en-US",
+		Language:  "es-MX",
 	}); err != nil {
 		t.Fatalf("AppendText first: %v", err)
 	}
@@ -142,7 +145,7 @@ func TestServiceSessionAppendsTwoSegments(t *testing.T) {
 		SegmentID: "seg_002",
 		Text:      "Hello second",
 		Voice:     "Dennis",
-		Language:  "en-US",
+		Language:  "es-MX",
 		IsLast:    true,
 	}); err != nil {
 		t.Fatalf("AppendText second: %v", err)
@@ -175,6 +178,47 @@ func TestServiceSessionAppendsTwoSegments(t *testing.T) {
 
 	if got := server.authorization; got != "Basic test-api-key" {
 		t.Fatalf("authorization = %q, want Basic test-api-key", got)
+	}
+}
+
+func TestNormalizeLanguage(t *testing.T) {
+	tests := []struct {
+		name     string
+		value    string
+		fallback string
+		want     string
+	}{
+		{"regional locale", "es-MX", "", "es-MX"},
+		{"ISO-639-3 regional locale", "spa_MX", "", "es-MX"},
+		{"script and region", "zh_hant_tw", "", "zh-Hant-TW"},
+		{"ISO-639-3 language", "eng", "", "en"},
+		{"normalized fallback", "", "eng_US", "en-US"},
+		{"omitted", "", "", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := normalizeLanguage(tt.value, tt.fallback); got != tt.want {
+				t.Fatalf("normalizeLanguage(%q, %q) = %q, want %q", tt.value, tt.fallback, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCreateContextOmitsEmptyLanguage(t *testing.T) {
+	data, err := json.Marshal(createContextMessage{
+		ContextID: "ctx_001",
+		Create: createContextPayload{
+			VoiceID:  "Dennis",
+			ModelID:  defaultModel,
+			Language: normalizeLanguage("", ""),
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal create context: %v", err)
+	}
+	if bytes.Contains(data, []byte(`"language"`)) {
+		t.Fatalf("create context = %s, want language omitted", data)
 	}
 }
 

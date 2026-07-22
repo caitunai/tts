@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/caitunai/tts/internal/audio"
+	langnorm "github.com/caitunai/tts/internal/language"
 	"github.com/caitunai/tts/internal/tts"
 	"github.com/go-resty/resty/v2"
 )
@@ -222,7 +223,7 @@ func (p *Provider) doRequest(ctx context.Context, req *tts.ProviderSynthesizeReq
 		Voice:          valueOrDefault(req.Voice, p.defaultVoice),
 		Stream:         true,
 		ResponseFormat: p.responseFormat,
-		Language:       valueOrDefault(req.Language, p.defaultLanguage),
+		Language:       normalizeLanguage(valueOrDefault(req.Language, p.defaultLanguage)),
 	}
 
 	request := p.client.R().
@@ -236,6 +237,23 @@ func (p *Provider) doRequest(ctx context.Context, req *tts.ProviderSynthesizeReq
 	}
 
 	return request.Post(p.endpoint)
+}
+
+var providerLanguageMapper = langnorm.NewMapper(
+	langnorm.Map("Chinese", langnorm.MatchLanguage, "zh", "cmn", "yue"),
+	langnorm.Map("English", langnorm.MatchLanguage, "en"),
+	langnorm.Map("German", langnorm.MatchLanguage, "de"),
+	langnorm.Map("Italian", langnorm.MatchLanguage, "it"),
+	langnorm.Map("Portuguese", langnorm.MatchLanguage, "pt"),
+	langnorm.Map("Spanish", langnorm.MatchLanguage, "es"),
+	langnorm.Map("Japanese", langnorm.MatchLanguage, "ja"),
+	langnorm.Map("Korean", langnorm.MatchLanguage, "ko"),
+	langnorm.Map("French", langnorm.MatchLanguage, "fr"),
+	langnorm.Map("Russian", langnorm.MatchLanguage, "ru"),
+)
+
+func normalizeLanguage(lang string) string {
+	return providerLanguageMapper.Resolve(lang, langnorm.Normalize(lang))
 }
 
 func (p *Provider) errorEvent(req *tts.ProviderSynthesizeRequest, segmentID string, err error) *tts.ProviderEvent {

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/caitunai/tts/internal/audio"
+	langnorm "github.com/caitunai/tts/internal/language"
 	"github.com/caitunai/tts/internal/tts"
 	"github.com/gorilla/websocket"
 )
@@ -197,7 +198,7 @@ func (p *Provider) OpenSession(ctx context.Context, req *tts.ProviderOpenSession
 		conn:                       conn,
 		model:                      p.model,
 		voice:                      voice,
-		language:                   valueOrDefault(req.Language, p.defaultLanguage),
+		language:                   normalizeLanguage(req.Language, p.defaultLanguage),
 		bitRate:                    p.bitRate,
 		bufferCharThreshold:        p.bufferCharThreshold,
 		maxBufferDelayMS:           p.maxBufferDelayMS,
@@ -697,6 +698,10 @@ func valueOrDefault(value, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func normalizeLanguage(value, fallback string) string {
+	return langnorm.Normalize(valueOrDefault(value, fallback))
 }
 
 func newID(prefix string) string {

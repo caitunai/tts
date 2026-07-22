@@ -64,6 +64,7 @@ func (s *providerBackedSession) AppendText(ctx context.Context, segment *Segment
 	}
 
 	segmentCopy := copySegmentRequest(segment)
+	segmentCopy.Language = NormalizeLanguage(segmentCopy.Language)
 
 	s.mu.Lock()
 	if s.closed || s.finishing {

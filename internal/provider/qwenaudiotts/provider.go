@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/caitunai/tts/internal/audio"
+	langnorm "github.com/caitunai/tts/internal/language"
 	"github.com/caitunai/tts/internal/tts"
 	"github.com/gorilla/websocket"
 )
@@ -940,19 +941,12 @@ func rawMeta(msg protocolMessage) map[string]any {
 	}
 }
 
+var providerLanguageMapper = langnorm.NewMapper(
+	langnorm.Map("zh", langnorm.MatchLanguage, "zh", "cmn", "yue"),
+)
+
 func normalizeLanguage(lang string) string {
-	switch strings.ToLower(lang) {
-	case "zh", "zh-cn", "chinese":
-		return "zh"
-	case "en", "en-us", "english":
-		return "en"
-	case "ja", "jp", "japanese":
-		return "ja"
-	case "ko", "kr", "korean":
-		return "ko"
-	default:
-		return lang
-	}
+	return providerLanguageMapper.Resolve(lang, langnorm.Primary(lang))
 }
 
 func valueOrDefault(value, fallback string) string {

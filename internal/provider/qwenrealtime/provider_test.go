@@ -291,6 +291,12 @@ func TestRewriteLang(t *testing.T) {
 		"fr":      French,
 		"ru":      Russian,
 		"Chinese": Chinese,
+		"eng":     English,
+		"en-US":   English,
+		"zho":     Chinese,
+		"cmn-CN":  Chinese,
+		"deu-DE":  German,
+		"jpn":     Japanese,
 		"unknown": Auto,
 		"":        Auto,
 	}

@@ -192,22 +192,36 @@ func TestProviderOpenSessionUnsupported(t *testing.T) {
 	}
 }
 
-func TestNormalizeLanguage(t *testing.T) {
-	tests := map[string]string{
-		"zh":      "zh-CN",
-		"en":      "en-US",
-		"ja":      "ja-JP",
-		"ko":      "ko-KR",
-		"de":      "de-DE",
-		"fr":      "fr-FR",
-		"es":      "es-ES",
-		"en-GB":   "en-GB",
-		"unknown": "unknown",
+func TestResolveLanguage(t *testing.T) {
+	tests := []struct {
+		name              string
+		requestLanguage   string
+		voice             string
+		configuredDefault string
+		want              string
+	}{
+		{"request locale wins", "en-GB", "en-US-JennyNeural", "fr-FR", "en-GB"},
+		{"voice completes request language", "eng", "en-US-JennyNeural", "fr-FR", "en-US"},
+		{"different request language stays unchanged", "fr", "en-US-AvaMultilingualNeural", "", "fr"},
+		{"voice locale when request omitted", "", "zh-CN-XiaoxiaoNeural", "en-US", "zh-CN"},
+		{"voice locale with script", "", "sr-Latn-RS-TestNeural", "", "sr-Latn-RS"},
+		{"configured default for custom voice", "", "my-custom-voice", "pt-BR", "pt-BR"},
+		{"platform fallback", "", "my-custom-voice", "", defaultLanguage},
 	}
 
-	for input, want := range tests {
-		if got := normalizeLanguage(input); got != want {
-			t.Fatalf("normalizeLanguage(%q) = %q, want %q", input, got, want)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := resolveLanguage(tt.requestLanguage, tt.voice, tt.configuredDefault); got != tt.want {
+				t.Fatalf("resolveLanguage(%q, %q, %q) = %q, want %q", tt.requestLanguage, tt.voice, tt.configuredDefault, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestLanguageFromVoiceRejectsNonstandardVoiceNames(t *testing.T) {
+	for _, voice := range []string{"", "custom-voice", "Microsoft Server Speech Voice"} {
+		if got := languageFromVoice(voice); got != "" {
+			t.Fatalf("languageFromVoice(%q) = %q, want empty", voice, got)
 		}
 	}
 }

@@ -348,7 +348,7 @@ func (s *realtimeSession) AppendText(ctx context.Context, segment *platformtts.P
 		User:      userPayload{UID: s.userID},
 		Event:     int(EventTypeTaskRequest),
 		Namespace: defaultNamespace,
-		ReqParams: s.requestParams(voice, language, guidance, segment.Text),
+		ReqParams: s.requestParams(voice, guidance, segment.Text),
 	})
 	if err != nil {
 		return s.eventError(platformtts.ErrInternal, fmt.Sprintf("encode doubao task request: %v", err), segment.SegmentID, err, false)
@@ -393,7 +393,7 @@ func (s *realtimeSession) start(ctx context.Context, voice, language, guidance s
 		User:      userPayload{UID: s.userID},
 		Event:     int(EventTypeStartSession),
 		Namespace: defaultNamespace,
-		ReqParams: s.requestParams(valueOrDefault(voice, s.defaultVoice), language, guidance, ""),
+		ReqParams: s.requestParams(valueOrDefault(voice, s.defaultVoice), guidance, ""),
 	})
 	if err != nil {
 		return s.eventError(platformtts.ErrInternal, fmt.Sprintf("encode doubao start session: %v", err), "", err, false)
@@ -626,7 +626,7 @@ func (s *realtimeSession) finishSessionOnce(ctx context.Context, segmentID strin
 	return nil
 }
 
-func (s *realtimeSession) requestParams(voice, language, guidance, text string) requestParams {
+func (s *realtimeSession) requestParams(voice, guidance, text string) requestParams {
 	styles := make([]string, 0, 1)
 	if guidance != "" {
 		styles = append(styles, guidance)
@@ -639,7 +639,6 @@ func (s *realtimeSession) requestParams(voice, language, guidance, text string) 
 		EnableLanguageDetector:       true,
 		ContextTexts:                 styles,
 		SectionID:                    s.sectionID,
-		ExplicitLanguage:             normalizeDoubaoLanguage(language),
 	})
 	params := requestParams{
 		Speaker: voice,
@@ -755,27 +754,6 @@ func valueOrDefault(value, fallback string) string {
 	return fallback
 }
 
-func normalizeDoubaoLanguage(language string) string {
-	switch strings.ToLower(language) {
-	case "zh", "zh-cn", "chinese":
-		return "zh-cn"
-	case "en", "english":
-		return "en"
-	case "ja", "japanese":
-		return "ja"
-	case "ko", "korean":
-		return "ko"
-	case "es", "es-mx", "spanish":
-		return "es-mx"
-	case "id", "indonesian":
-		return "id"
-	case "pt", "pt-br", "portuguese":
-		return "pt-br"
-	default:
-		return ""
-	}
-}
-
 func newID(prefix string) string {
 	var b [16]byte
 	if _, err := rand.Read(b[:]); err != nil {
@@ -844,5 +822,4 @@ type additionsPayload struct {
 	EnableLanguageDetector       bool     `json:"enable_language_detector"`
 	ContextTexts                 []string `json:"context_texts,omitempty"`
 	SectionID                    string   `json:"section_id,omitempty"`
-	ExplicitLanguage             string   `json:"explicit_language,omitempty"`
 }

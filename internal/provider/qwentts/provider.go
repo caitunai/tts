@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/caitunai/tts/internal/audio"
+	langnorm "github.com/caitunai/tts/internal/language"
 	"github.com/caitunai/tts/internal/tts"
 	"github.com/go-resty/resty/v2"
 )
@@ -344,31 +345,21 @@ func errorToTTSError(err error, provider, segmentID string) *tts.Error {
 	}
 }
 
+var providerLanguageMapper = langnorm.NewMapper(
+	langnorm.Map(Chinese, langnorm.MatchLanguage, "zh", "cmn", "yue"),
+	langnorm.Map(English, langnorm.MatchLanguage, "en"),
+	langnorm.Map(German, langnorm.MatchLanguage, "de"),
+	langnorm.Map(Italian, langnorm.MatchLanguage, "it"),
+	langnorm.Map(Portuguese, langnorm.MatchLanguage, "pt"),
+	langnorm.Map(Spanish, langnorm.MatchLanguage, "es"),
+	langnorm.Map(Japanese, langnorm.MatchLanguage, "ja"),
+	langnorm.Map(Korean, langnorm.MatchLanguage, "ko"),
+	langnorm.Map(French, langnorm.MatchLanguage, "fr"),
+	langnorm.Map(Russian, langnorm.MatchLanguage, "ru"),
+)
+
 func rewriteLang(lang string) string {
-	switch strings.ToLower(lang) {
-	case "zh", "chinese":
-		return Chinese
-	case "en", "english":
-		return English
-	case "de", "german":
-		return German
-	case "it", "italian":
-		return Italian
-	case "pt", "portuguese":
-		return Portuguese
-	case "es", "spanish":
-		return Spanish
-	case "ja", "japanese":
-		return Japanese
-	case "ko", "korean":
-		return Korean
-	case "fr", "french":
-		return French
-	case "ru", "russian":
-		return Russian
-	default:
-		return Auto
-	}
+	return providerLanguageMapper.Resolve(lang, Auto)
 }
 
 func valueOrDefault(value, fallback string) string {

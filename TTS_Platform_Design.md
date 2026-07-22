@@ -1186,6 +1186,17 @@ type ProviderCapabilities struct {
 为空表示平台层不做语种或音色 allowlist 校验，并不表示 Provider 不支持语种或音色。
 这类兼容性错误应由具体上游 Provider/API 返回，避免第三方服务新增语种、音色或自定义音色后被平台静态列表误拦截。
 
+平台内部语言码使用 canonical BCP-47 风格的字符串，但请求入口兼容常见 ISO-639-1、ISO-639-3、BCP-47、下划线格式和英文语言名。
+Service 在把请求交给 Provider 前先进行归一化，例如 `eng` / `en_US` / `English` 会归一化为 `en` 或 `en-US`，`zho` / `Chinese` 会归一化为 `zh`，`cmn-CN` 会保留为 `cmn-CN`。
+Provider Adapter 负责把平台内部语言码转换成厂商协议需要的最终值，例如 Qwen 的 `Chinese` / `English`、Microsoft 的 `en-US` / `zh-CN`。Doubao 不发送 `explicit_language`，而是启用上游自动语种检测。
+Microsoft 的 SSML 根节点必须提供 `xml:lang`：请求未提供语言时，Provider 优先从标准 voice 名称提取 locale，其次使用 Provider 配置的默认语言，最后使用 `en-US`，不维护固定且不完整的语种地区映射表。
+无法识别的语言默认透传或映射为厂商 `auto`，不在平台层做静态拒绝。
+
+语言归一化层提供统一的 `Language` 值对象，包含 canonical tag、ISO-639-1、ISO-639-3、script 和 region。
+Provider 不直接对二字符或三字符代码执行 `switch`，而是通过声明式 Mapper 把一个或多个 `Language` 映射为厂商值。
+Mapper 支持 `Exact`、`LanguageScript`、`LanguageRegion` 和 `Language` 四种匹配粒度，并优先选择粒度更精确的规则。
+例如 `MatchLanguage("en")` 可以覆盖 `en`、`eng`、`English` 和 `en-US`；中文普通话与粤语属于不同 ISO-639-3 语种，因此可将 `zh`、`cmn`、`yue` 放入同一映射规则，也可以按 Provider 能力分别映射。
+
 这些能力主要用于：
 
 ```text

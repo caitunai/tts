@@ -170,6 +170,34 @@ func TestDefaultServiceDispatchesSynthesizeOnce(t *testing.T) {
 	}
 }
 
+func TestDefaultServiceNormalizesSynthesizeLanguage(t *testing.T) {
+	provider := &fakeServiceProvider{
+		name: "mock",
+		caps: &ProviderCapabilities{
+			Name:              "mock",
+			SupportsPCMOutput: true,
+		},
+	}
+	service := NewService("", fakeRegistry{
+		providers: map[string]Provider{"mock": provider},
+	})
+
+	_, err := service.SynthesizeOnce(context.Background(), &SynthesizeRequest{
+		Provider: "mock",
+		Text:     "hello",
+		Language: "eng-US",
+	})
+	if err != nil {
+		t.Fatalf("SynthesizeOnce: %v", err)
+	}
+	if provider.seenSynthReq == nil {
+		t.Fatal("provider did not receive synth request")
+	}
+	if provider.seenSynthReq.Language != "en-US" {
+		t.Fatalf("Language = %q, want en-US", provider.seenSynthReq.Language)
+	}
+}
+
 func TestDefaultServiceRejectsUnsupportedGuidanceText(t *testing.T) {
 	service := NewService("", fakeRegistry{
 		providers: map[string]Provider{
@@ -237,6 +265,47 @@ func TestDefaultServiceOpenSessionWrapsProviderSession(t *testing.T) {
 	}
 	if providerSession.seenSegment == nil {
 		t.Fatal("provider session did not receive segment")
+	}
+}
+
+func TestDefaultServiceNormalizesOpenSessionAndSegmentLanguage(t *testing.T) {
+	providerSession := &fakeProviderSession{id: "sess_provider"}
+	provider := &fakeServiceProvider{
+		name: "mock",
+		caps: &ProviderCapabilities{
+			Name:               "mock",
+			SupportsAppendText: true,
+			SupportsPCMOutput:  true,
+		},
+		providerSession: providerSession,
+	}
+	service := NewService("", fakeRegistry{
+		providers: map[string]Provider{"mock": provider},
+	})
+
+	session, err := service.OpenSession(context.Background(), &OpenSessionRequest{
+		SessionID: "sess_001",
+		Provider:  "mock",
+		Language:  "zho-Hans-CN",
+	})
+	if err != nil {
+		t.Fatalf("OpenSession: %v", err)
+	}
+	if provider.seenOpenReq == nil {
+		t.Fatal("provider did not receive open session request")
+	}
+	if provider.seenOpenReq.Language != "zh-Hans-CN" {
+		t.Fatalf("open language = %q, want zh-Hans-CN", provider.seenOpenReq.Language)
+	}
+
+	if err := session.AppendText(context.Background(), &SegmentRequest{SegmentID: "seg_001", Text: "hello", Language: "jpn_JP"}); err != nil {
+		t.Fatalf("AppendText: %v", err)
+	}
+	if providerSession.seenSegment == nil {
+		t.Fatal("provider session did not receive segment")
+	}
+	if providerSession.seenSegment.Language != "ja-JP" {
+		t.Fatalf("segment language = %q, want ja-JP", providerSession.seenSegment.Language)
 	}
 }
 

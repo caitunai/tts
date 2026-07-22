@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/caitunai/tts/internal/audio"
+	langnorm "github.com/caitunai/tts/internal/language"
 	"github.com/caitunai/tts/internal/tts"
 	"github.com/gorilla/websocket"
 )
@@ -371,7 +372,7 @@ func (s *realtimeSession) AppendText(ctx context.Context, segment *tts.ProviderS
 			SegmentID: segmentID,
 		}
 	}
-	language := valueOrDefault(segment.Language, valueOrDefault(s.initialLanguage, s.defaultLanguage))
+	language := langnorm.Normalize(valueOrDefault(segment.Language, valueOrDefault(s.initialLanguage, s.defaultLanguage)))
 	contextID := s.contextID(segmentID)
 
 	s.mu.Lock()

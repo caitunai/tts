@@ -19,7 +19,6 @@ const (
 	defaultEndpoint = "wss://openspeech.bytedance.com/api/v3/tts/bidirection"
 	defaultText     = "你好，今天天气怎么样呢？"
 	defaultAppend   = ""
-	defaultLanguage = "zh"
 	defaultOutput   = "local_doubao_tts.ogg"
 )
 
@@ -33,7 +32,6 @@ func main() {
 		text               = flag.String("text", defaultText, "text to synthesize")
 		appendText         = flag.String("append-text", defaultAppend, "second text segment appended to the same realtime session; empty disables the second append")
 		voice              = flag.String("voice", envOrDefault("DOUBAO_TTS_VOICE", ""), "speaker/voice id")
-		language           = flag.String("language", defaultLanguage, "language code: zh/en/ja/ko/es/id/pt")
 		guidance           = flag.String("guidance", "", "optional guidance text mapped to context_texts")
 		sectionID          = flag.String("section-id", envOrDefault("DOUBAO_TTS_SECTION_ID", ""), "optional multi-round section_id")
 		outPath            = flag.String("out", defaultOutput, "Ogg Opus output path; empty disables file output")
@@ -64,7 +62,6 @@ func main() {
 		text:               *text,
 		appendText:         *appendText,
 		voice:              *voice,
-		language:           *language,
 		guidance:           *guidance,
 		sectionID:          *sectionID,
 		outPath:            *outPath,
@@ -83,7 +80,6 @@ type config struct {
 	text               string
 	appendText         string
 	voice              string
-	language           string
 	guidance           string
 	sectionID          string
 	outPath            string
@@ -99,7 +95,6 @@ func run(ctx context.Context, cfg config) error {
 		AccessKey:          cfg.accessKey,
 		ResourceID:         cfg.resourceID,
 		DefaultVoice:       cfg.voice,
-		DefaultLanguage:    cfg.language,
 		DefaultSectionID:   cfg.sectionID,
 		SegmentIdleTimeout: cfg.segmentIdleTimeout,
 	})
@@ -134,7 +129,6 @@ func run(ctx context.Context, cfg config) error {
 		SessionID:    sessionID,
 		Provider:     "doubao",
 		Voice:        cfg.voice,
-		Language:     cfg.language,
 		GuidanceText: cfg.guidance,
 		Output: audio.OutputConfig{
 			PreferCodec:        audio.CodecOpus,
@@ -157,7 +151,6 @@ func run(ctx context.Context, cfg config) error {
 		SegmentID:    "seg_001",
 		Text:         cfg.text,
 		Voice:        cfg.voice,
-		Language:     cfg.language,
 		GuidanceText: cfg.guidance,
 		IsLast:       cfg.appendText == "",
 	}); err != nil {
@@ -168,7 +161,6 @@ func run(ctx context.Context, cfg config) error {
 			SegmentID:    "seg_002",
 			Text:         cfg.appendText,
 			Voice:        cfg.voice,
-			Language:     cfg.language,
 			GuidanceText: cfg.guidance,
 			IsLast:       true,
 		}); err != nil {
@@ -179,7 +171,7 @@ func run(ctx context.Context, cfg config) error {
 		return err
 	}
 
-	fmt.Printf("session_id=%s endpoint=%s resource_id=%s voice=%s language=%s sample_rate=%d\n", session.ID(), cfg.endpoint, cfg.resourceID, cfg.voice, cfg.language, audio.OpusSampleRate)
+	fmt.Printf("session_id=%s endpoint=%s resource_id=%s voice=%s sample_rate=%d\n", session.ID(), cfg.endpoint, cfg.resourceID, cfg.voice, audio.OpusSampleRate)
 
 	var (
 		packetCount  int

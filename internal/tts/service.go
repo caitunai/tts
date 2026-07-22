@@ -53,25 +53,27 @@ func (s *DefaultService) SynthesizeOnce(ctx context.Context, req *SynthesizeRequ
 	if req == nil {
 		return nil, internalError("synthesize request is nil")
 	}
+	reqCopy := *req
+	reqCopy.Language = NormalizeLanguage(reqCopy.Language)
 
-	provider, caps, err := s.providerForRequest(ctx, requestProvider(req))
+	provider, caps, err := s.providerForRequest(ctx, requestProvider(&reqCopy))
 	if err != nil {
 		return nil, err
 	}
-	output := resolveOutputConfig(req.Output, caps)
-	if err := validateSynthesizeRequest(req, caps, output); err != nil {
+	output := resolveOutputConfig(reqCopy.Output, caps)
+	if err := validateSynthesizeRequest(&reqCopy, caps, output); err != nil {
 		return nil, err
 	}
 
 	providerEvents, err := provider.SynthesizeOnce(ctx, &ProviderSynthesizeRequest{
-		RequestID:      req.RequestID,
-		Text:           req.Text,
-		Language:       req.Language,
-		Voice:          req.Voice,
-		GuidanceText:   req.GuidanceText,
-		ReferenceAudio: req.ReferenceAudio,
+		RequestID:      reqCopy.RequestID,
+		Text:           reqCopy.Text,
+		Language:       reqCopy.Language,
+		Voice:          reqCopy.Voice,
+		GuidanceText:   reqCopy.GuidanceText,
+		ReferenceAudio: reqCopy.ReferenceAudio,
 		Output:         output,
-		Options:        req.Options,
+		Options:        reqCopy.Options,
 	})
 	if err != nil {
 		return nil, err
@@ -84,30 +86,32 @@ func (s *DefaultService) OpenSession(ctx context.Context, req *OpenSessionReques
 	if req == nil {
 		return nil, internalError("open session request is nil")
 	}
+	reqCopy := *req
+	reqCopy.Language = NormalizeLanguage(reqCopy.Language)
 
-	provider, caps, err := s.providerForRequest(ctx, sessionProvider(req))
+	provider, caps, err := s.providerForRequest(ctx, sessionProvider(&reqCopy))
 	if err != nil {
 		return nil, err
 	}
-	output := resolveOutputConfig(req.Output, caps)
-	if err := validateOpenSessionRequest(req, caps, output); err != nil {
+	output := resolveOutputConfig(reqCopy.Output, caps)
+	if err := validateOpenSessionRequest(&reqCopy, caps, output); err != nil {
 		return nil, err
 	}
 
 	providerSession, err := provider.OpenSession(ctx, &ProviderOpenSessionRequest{
-		SessionID:      req.SessionID,
-		Language:       req.Language,
-		Voice:          req.Voice,
-		GuidanceText:   req.GuidanceText,
-		ReferenceAudio: req.ReferenceAudio,
+		SessionID:      reqCopy.SessionID,
+		Language:       reqCopy.Language,
+		Voice:          reqCopy.Voice,
+		GuidanceText:   reqCopy.GuidanceText,
+		ReferenceAudio: reqCopy.ReferenceAudio,
 		Output:         output,
-		Options:        req.Options,
+		Options:        reqCopy.Options,
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	return newProviderBackedSession(req.Provider, output, providerSession), nil
+	return newProviderBackedSession(reqCopy.Provider, output, providerSession), nil
 }
 
 func (s *DefaultService) providerForRequest(ctx context.Context, providerName string) (Provider, *ProviderCapabilities, error) {
