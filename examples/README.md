@@ -85,6 +85,36 @@ ffplay local_qwen_realtime_tts.ogg
 
 Qwen realtime Opus audio is treated as 48 kHz throughout the provider and platform pipeline.
 
+## local_qwen_audio_tts
+
+Run against Alibaba Cloud Qwen Audio 3.0 realtime WebSocket TTS API:
+
+```sh
+export DASHSCOPE_API_KEY="your-token"
+export QWEN_AUDIO_TTS_ENDPOINT="wss://{workspace}.cn-beijing.maas.aliyuncs.com/api-ws/v1/inference"
+go run ./examples/local_qwen_audio_tts \
+  -model qwen-audio-3.0-tts-flash \
+  -voice longanlingxi \
+  -language zh \
+  -instruction "温暖自然的语气" \
+  -text "你好，今天天气怎么样呢？" \
+  -append-text "这是第二段追加文本，用来验证 continue-task 是否生效。" \
+  -out local_qwen_audio_tts.ogg
+```
+
+Use `-finish-delay 0` to send `finish-task` immediately after the last
+`continue-task`; omit it or pass `-finish-delay -1` to use the provider default
+of 500 ms.
+
+Qwen Audio 3.0 uses the raw WebSocket `run-task` / `continue-task` /
+`finish-task` protocol and sends Ogg-wrapped Opus binary frames. The platform
+demuxes them into raw Opus packets at 48 kHz, and this example wraps those
+packets back into an Ogg Opus file for playback:
+
+```sh
+ffplay local_qwen_audio_tts.ogg
+```
+
 ## local_minimax_tts
 
 Run against Minimax realtime WebSocket TTS API:

@@ -187,7 +187,7 @@ func TestServiceSessionAppendsTwoSegments(t *testing.T) {
 	if len(firstAudio.Audio.Data) != 640 {
 		t.Fatalf("first data length = %d, want 640", len(firstAudio.Audio.Data))
 	}
-	requireEvent(t, events, tts.EventSegmentEnd, "seg_001")
+	requireSegmentEndAfterAudio(t, events, "seg_001")
 
 	secondContinue := server.nextMessage()
 	var second taskEventRequest
@@ -209,7 +209,7 @@ func TestServiceSessionAppendsTwoSegments(t *testing.T) {
 	if len(secondAudio.Audio.Data) != 640 {
 		t.Fatalf("second data length = %d, want 640", len(secondAudio.Audio.Data))
 	}
-	requireEvent(t, events, tts.EventSegmentEnd, "seg_002")
+	requireSegmentEndAfterAudio(t, events, "seg_002")
 
 	finishMsg := server.nextMessage()
 	var finish taskEventRequest
@@ -427,6 +427,43 @@ func requireEvent(t *testing.T, events <-chan *tts.Event, eventType tts.EventTyp
 		return event
 	case <-time.After(3 * time.Second):
 		t.Fatalf("timeout waiting for %s event", eventType)
+	}
+	return nil
+}
+
+func requireSegmentEndAfterAudio(t *testing.T, events <-chan *tts.Event, segmentID string) {
+	t.Helper()
+	for {
+		event := requireEventForSegment(t, events, segmentID)
+		switch event.Type {
+		case tts.EventAudioFrame:
+			if event.Audio == nil {
+				t.Fatal("extra audio frame is nil")
+			}
+			if event.Audio.Codec != audio.CodecPCM {
+				t.Fatalf("extra audio codec = %q, want pcm", event.Audio.Codec)
+			}
+		case tts.EventSegmentEnd:
+			return
+		default:
+			t.Fatalf("event = %#v, want audio_frame or segment_end for %s", event, segmentID)
+		}
+	}
+}
+
+func requireEventForSegment(t *testing.T, events <-chan *tts.Event, segmentID string) *tts.Event {
+	t.Helper()
+	select {
+	case event, ok := <-events:
+		if !ok {
+			t.Fatal("events channel closed")
+		}
+		if event.SegmentID != segmentID {
+			t.Fatalf("event = %#v, want segment_id=%s", event, segmentID)
+		}
+		return event
+	case <-time.After(3 * time.Second):
+		t.Fatalf("timeout waiting for event for %s", segmentID)
 	}
 	return nil
 }

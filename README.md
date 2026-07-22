@@ -35,6 +35,7 @@ github.com/caitunai/tts/provider
 github.com/caitunai/tts/providers/vllm
 github.com/caitunai/tts/providers/qwenhttp
 github.com/caitunai/tts/providers/qwenrealtime
+github.com/caitunai/tts/providers/qwenaudio
 github.com/caitunai/tts/providers/cartesia
 github.com/caitunai/tts/providers/deepgram
 github.com/caitunai/tts/providers/microsoft
@@ -256,6 +257,7 @@ for event := range session.Events() {
 | `providers/vllm` | HTTP chunked | 24 kHz PCM | 16 kHz mono PCM frames |
 | `providers/qwenhttp` | HTTP SSE | base64 PCM | 16 kHz mono PCM frames |
 | `providers/qwenrealtime` | WebSocket | Ogg-wrapped Opus | raw Opus packets, 48 kHz |
+| `providers/qwenaudio` | WebSocket | Ogg-wrapped Opus binary frames | raw Opus packets, 48 kHz |
 | `providers/cartesia` | WebSocket | base64 raw PCM | 16 kHz mono PCM frames |
 | `providers/deepgram` | HTTP | Ogg-wrapped Opus | raw Opus packets, 48 kHz |
 | `providers/microsoft` | HTTP | Ogg-wrapped Opus | raw Opus packets, 48 kHz |
@@ -304,6 +306,26 @@ provider, err := qwenrealtime.NewProvider(qwenrealtime.Config{
 	DefaultVoice: "Cherry",
 })
 ```
+
+### Qwen Audio 3.0 Realtime WebSocket TTS
+
+```go
+provider, err := qwenaudio.NewProvider(qwenaudio.Config{
+	Name:            qwenaudio.ProviderName,
+	Endpoint:        os.Getenv("QWEN_AUDIO_TTS_ENDPOINT"),
+	APIKey:          os.Getenv("DASHSCOPE_API_KEY"),
+	Model:           "qwen-audio-3.0-tts-flash",
+	DefaultVoice:    "longanlingxi",
+	DefaultLanguage: "zh",
+	BitRate:         32,
+})
+```
+
+Qwen Audio 3.0 使用 `run-task` / `continue-task` / `finish-task` 的实时
+WebSocket 协议。Provider 请求 `format=opus`、`sample_rate=48000`，服务端
+`result-generated` 事件后的 binary audio frame 会作为 Ogg-wrapped Opus
+交给平台 demux，应用层拿到 raw Opus packets。`OpenSessionRequest.GuidanceText`
+会映射到 Qwen Audio 的 `instruction` 参数。
 
 ### Microsoft Azure Speech TTS
 

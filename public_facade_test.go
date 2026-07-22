@@ -16,6 +16,7 @@ import (
 	"github.com/caitunai/tts/providers/microsoft"
 	"github.com/caitunai/tts/providers/minimax"
 	"github.com/caitunai/tts/providers/openai"
+	"github.com/caitunai/tts/providers/qwenaudio"
 	"github.com/caitunai/tts/providers/qwenhttp"
 	"github.com/caitunai/tts/providers/qwenrealtime"
 	"github.com/caitunai/tts/providers/vllm"
@@ -31,6 +32,7 @@ var _ tts.Provider = (*inworld.Provider)(nil)
 var _ tts.Provider = (*microsoft.Provider)(nil)
 var _ tts.Provider = (*minimax.Provider)(nil)
 var _ tts.Provider = (*openai.Provider)(nil)
+var _ tts.Provider = (*qwenaudio.Provider)(nil)
 var _ tts.Provider = (*qwenhttp.Provider)(nil)
 var _ tts.Provider = (*qwenrealtime.Provider)(nil)
 var _ tts.Provider = (*vllm.Provider)(nil)
@@ -145,6 +147,13 @@ func TestProviderNameConstantsMatchDefaults(t *testing.T) {
 			want: openai.ProviderName,
 			new: func() (tts.Provider, error) {
 				return openai.NewProvider(openai.Config{})
+			},
+		},
+		{
+			name: "qwenaudio",
+			want: qwenaudio.ProviderName,
+			new: func() (tts.Provider, error) {
+				return qwenaudio.NewProvider(qwenaudio.Config{Endpoint: "wss://example.test/api-ws/v1/inference/"})
 			},
 		},
 		{
