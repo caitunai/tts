@@ -161,6 +161,11 @@ Provider 的 `Name` 很重要。应用层 `OpenSessionRequest.Provider` 或 `Syn
 
 每个 public Provider package 都提供了 `ProviderName` 常量。默认情况下推荐直接使用这个常量，避免不同应用方手写字符串不一致。如果你确实需要一个自定义名称，也可以覆盖 `Config.Name`，但请求里的 `Provider` 必须使用同一个名称。
 
+Provider capabilities 默认不声明有限语种或音色列表，平台层不会根据 `Language`
+或 `Voice` 提前拒绝请求。语言和音色兼容性交给具体上游 Provider/API 处理，
+避免第三方服务新增语种、音色或工作区自定义音色后被平台静态列表误拦截。
+`DefaultVoice` 只作为请求未传 `Voice` 时的缺省值，不代表平台层的允许列表。
+
 ```go
 registry := provider.NewRegistry()
 

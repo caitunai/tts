@@ -43,8 +43,8 @@ func TestProviderCapabilities(t *testing.T) {
 	if len(caps.OutputSampleRates) != 1 || caps.OutputSampleRates[0] != audio.OpusSampleRate {
 		t.Fatalf("OutputSampleRates = %#v, want %d", caps.OutputSampleRates, audio.OpusSampleRate)
 	}
-	if len(caps.Voices) != 1 || caps.Voices[0].ID != "voice-001" {
-		t.Fatalf("Voices = %#v, want voice-001", caps.Voices)
+	if len(caps.Voices) != 0 {
+		t.Fatalf("Voices = %#v, want no platform voice restriction", caps.Voices)
 	}
 }
 

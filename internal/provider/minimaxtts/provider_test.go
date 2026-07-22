@@ -54,8 +54,8 @@ func TestProviderCapabilities(t *testing.T) {
 	if len(caps.OutputChannels) != 1 || caps.OutputChannels[0] != audio.DefaultChannels {
 		t.Fatalf("output channels = %#v, want %d", caps.OutputChannels, audio.DefaultChannels)
 	}
-	if len(caps.Languages) != 41 {
-		t.Fatalf("languages length = %d, want 41", len(caps.Languages))
+	if len(caps.Languages) != 0 {
+		t.Fatalf("languages = %#v, want no platform language restriction", caps.Languages)
 	}
 }
 

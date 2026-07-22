@@ -100,18 +100,6 @@ func (p *Provider) Capabilities(context.Context) (*tts.ProviderCapabilities, err
 		OutputContainers:        []audio.Container{audio.ContainerOgg},
 		OutputSampleRates:       []int{audio.OpusSampleRate},
 		OutputChannels:          []int{audio.DefaultChannels},
-		Languages: []tts.LanguageInfo{
-			{Code: "zh-CN", Name: "Chinese (Mandarin, Simplified)"},
-			{Code: "en-US", Name: "English (United States)"},
-			{Code: "ja-JP", Name: "Japanese"},
-			{Code: "ko-KR", Name: "Korean"},
-			{Code: "de-DE", Name: "German"},
-			{Code: "fr-FR", Name: "French"},
-			{Code: "es-ES", Name: "Spanish"},
-		},
-	}
-	if p.defaultVoice != "" {
-		caps.Voices = []tts.VoiceInfo{{ID: p.defaultVoice, Name: p.defaultVoice}}
 	}
 	return caps, nil
 }

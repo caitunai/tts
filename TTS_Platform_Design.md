@@ -1182,6 +1182,10 @@ type ProviderCapabilities struct {
 }
 ```
 
+其中 `Voices` 和 `Languages` 只有在 Provider 能提供完整、稳定的有限列表时才填写。
+为空表示平台层不做语种或音色 allowlist 校验，并不表示 Provider 不支持语种或音色。
+这类兼容性错误应由具体上游 Provider/API 返回，避免第三方服务新增语种、音色或自定义音色后被平台静态列表误拦截。
+
 这些能力主要用于：
 
 ```text

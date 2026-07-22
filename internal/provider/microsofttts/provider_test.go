@@ -145,7 +145,7 @@ func TestProviderMapsHTTPStatusError(t *testing.T) {
 	}
 }
 
-func TestCapabilitiesIncludeConfiguredVoice(t *testing.T) {
+func TestCapabilitiesWithoutVoiceRestriction(t *testing.T) {
 	provider, err := NewProvider(Config{
 		Name:         "microsoft",
 		Endpoint:     "https://example.test/cognitiveservices/v1",
@@ -159,8 +159,8 @@ func TestCapabilitiesIncludeConfiguredVoice(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Capabilities: %v", err)
 	}
-	if len(caps.Voices) != 1 || caps.Voices[0].ID != "zh-CN-XiaoxiaoNeural" {
-		t.Fatalf("voices = %#v, want zh-CN-XiaoxiaoNeural", caps.Voices)
+	if len(caps.Voices) != 0 {
+		t.Fatalf("voices = %#v, want no platform voice restriction", caps.Voices)
 	}
 	if !caps.SupportsOggOpusOutput {
 		t.Fatal("SupportsOggOpusOutput = false, want true")

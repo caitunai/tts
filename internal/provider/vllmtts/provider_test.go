@@ -157,7 +157,7 @@ func TestProviderMapsHTTPStatusError(t *testing.T) {
 	}
 }
 
-func TestCapabilitiesIncludeConfiguredVoiceAndLanguage(t *testing.T) {
+func TestCapabilitiesWithoutVoiceOrLanguageRestriction(t *testing.T) {
 	provider, err := NewProvider(Config{
 		Name:            "local",
 		Endpoint:        "http://127.0.0.1:9012/v1/audio/speech",
@@ -172,11 +172,11 @@ func TestCapabilitiesIncludeConfiguredVoiceAndLanguage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Capabilities: %v", err)
 	}
-	if len(caps.Voices) != 1 || caps.Voices[0].ID != "serena" {
-		t.Fatalf("voices = %#v, want serena", caps.Voices)
+	if len(caps.Voices) != 0 {
+		t.Fatalf("voices = %#v, want no platform voice restriction", caps.Voices)
 	}
-	if len(caps.Languages) != 1 || caps.Languages[0].Code != "Chinese" {
-		t.Fatalf("languages = %#v, want Chinese", caps.Languages)
+	if len(caps.Languages) != 0 {
+		t.Fatalf("languages = %#v, want no platform language restriction", caps.Languages)
 	}
 	if len(caps.OutputSampleRates) != 1 || caps.OutputSampleRates[0] != 24000 {
 		t.Fatalf("output sample rates = %#v, want 24000", caps.OutputSampleRates)

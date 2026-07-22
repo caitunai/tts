@@ -179,10 +179,6 @@ func (p *Provider) Capabilities(context.Context) (*tts.ProviderCapabilities, err
 		OutputSampleRates:            []int{p.sampleRate},
 		OutputChannels:               []int{audio.DefaultChannels},
 		SupportsSegmentLevelGuidance: false,
-		Languages:                    minimaxLanguages(),
-	}
-	if p.defaultVoice != "" {
-		caps.Voices = []tts.VoiceInfo{{ID: p.defaultVoice, Name: p.defaultVoice}}
 	}
 	return caps, nil
 }
@@ -330,52 +326,6 @@ func rewriteLang(lang string) string {
 		return Afrikaans
 	default:
 		return Auto
-	}
-}
-
-func minimaxLanguages() []tts.LanguageInfo {
-	return []tts.LanguageInfo{
-		{Code: "zh", Name: Chinese},
-		{Code: "yue", Name: Yue},
-		{Code: "en", Name: English},
-		{Code: "ar", Name: Arabic},
-		{Code: "ru", Name: Russian},
-		{Code: "es", Name: Spanish},
-		{Code: "fr", Name: French},
-		{Code: "pt", Name: Portuguese},
-		{Code: "de", Name: German},
-		{Code: "tr", Name: Turkish},
-		{Code: "nl", Name: Dutch},
-		{Code: "uk", Name: Ukrainian},
-		{Code: "vi", Name: Vietnamese},
-		{Code: "id", Name: Indonesian},
-		{Code: "ja", Name: Japanese},
-		{Code: "it", Name: Italian},
-		{Code: "ko", Name: Korean},
-		{Code: "th", Name: Thai},
-		{Code: "pl", Name: Polish},
-		{Code: "ro", Name: Romanian},
-		{Code: "el", Name: Greek},
-		{Code: "cs", Name: Czech},
-		{Code: "fi", Name: Finnish},
-		{Code: "hi", Name: Hindi},
-		{Code: "bg", Name: Bulgarian},
-		{Code: "da", Name: Danish},
-		{Code: "he", Name: Hebrew},
-		{Code: "ms", Name: Malay},
-		{Code: "fa", Name: Persian},
-		{Code: "sk", Name: Slovak},
-		{Code: "sv", Name: Swedish},
-		{Code: "hr", Name: Croatian},
-		{Code: "tl", Name: Filipino},
-		{Code: "hu", Name: Hungarian},
-		{Code: "nn", Name: Nynorsk},
-		{Code: "no", Name: Norwegian},
-		{Code: "sl", Name: Slovenian},
-		{Code: "ca", Name: Catalan},
-		{Code: "ta", Name: Tamil},
-		{Code: "af", Name: Afrikaans},
-		{Code: "auto", Name: Auto},
 	}
 }
 

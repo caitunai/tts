@@ -32,8 +32,8 @@ func TestProviderCapabilities(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Capabilities: %v", err)
 	}
-	if len(caps.Voices) != 1 || caps.Voices[0].ID != "voice-001" {
-		t.Fatalf("voices = %#v, want voice-001", caps.Voices)
+	if len(caps.Voices) != 0 {
+		t.Fatalf("voices = %#v, want no platform voice restriction", caps.Voices)
 	}
 	if !caps.SupportsAppendText {
 		t.Fatal("SupportsAppendText = false, want true")

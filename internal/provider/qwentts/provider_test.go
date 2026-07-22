@@ -209,7 +209,7 @@ func TestProviderMapsInvalidBase64Audio(t *testing.T) {
 	}
 }
 
-func TestCapabilitiesIncludeConfiguredVoiceAndLanguages(t *testing.T) {
+func TestCapabilitiesWithoutVoiceOrLanguageRestriction(t *testing.T) {
 	provider, err := NewProvider(Config{
 		Name:         "qwen",
 		Endpoint:     "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation",
@@ -224,14 +224,14 @@ func TestCapabilitiesIncludeConfiguredVoiceAndLanguages(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Capabilities: %v", err)
 	}
-	if len(caps.Voices) != 1 || caps.Voices[0].ID != "Cherry" {
-		t.Fatalf("voices = %#v, want Cherry", caps.Voices)
+	if len(caps.Voices) != 0 {
+		t.Fatalf("voices = %#v, want no platform voice restriction", caps.Voices)
 	}
 	if len(caps.OutputSampleRates) != 1 || caps.OutputSampleRates[0] != 48000 {
 		t.Fatalf("output sample rates = %#v, want 48000", caps.OutputSampleRates)
 	}
-	if len(caps.Languages) != 11 {
-		t.Fatalf("languages length = %d, want 11", len(caps.Languages))
+	if len(caps.Languages) != 0 {
+		t.Fatalf("languages = %#v, want no platform language restriction", caps.Languages)
 	}
 	if caps.SupportsAppendText {
 		t.Fatal("SupportsAppendText = true, want false")

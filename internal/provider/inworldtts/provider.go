@@ -130,12 +130,6 @@ func (p *Provider) Capabilities(context.Context) (*tts.ProviderCapabilities, err
 		OutputSampleRates:       []int{audio.OpusSampleRate},
 		OutputChannels:          []int{audio.DefaultChannels},
 	}
-	if p.defaultVoice != "" {
-		caps.Voices = []tts.VoiceInfo{{ID: p.defaultVoice, Name: p.defaultVoice}}
-	}
-	if p.defaultLanguage != "" {
-		caps.Languages = []tts.LanguageInfo{{Code: p.defaultLanguage, Name: p.defaultLanguage}}
-	}
 	return caps, nil
 }
 

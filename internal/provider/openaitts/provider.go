@@ -117,21 +117,6 @@ func (p *Provider) Capabilities(context.Context) (*tts.ProviderCapabilities, err
 		OutputContainers:        []audio.Container{audio.ContainerOgg},
 		OutputSampleRates:       []int{audio.OpusSampleRate},
 		OutputChannels:          []int{audio.DefaultChannels},
-		Voices: []tts.VoiceInfo{
-			{ID: "alloy", Name: "alloy"},
-			{ID: "ash", Name: "ash"},
-			{ID: "ballad", Name: "ballad"},
-			{ID: "coral", Name: "coral"},
-			{ID: "echo", Name: "echo"},
-			{ID: "fable", Name: "fable"},
-			{ID: "onyx", Name: "onyx"},
-			{ID: "nova", Name: "nova"},
-			{ID: "sage", Name: "sage"},
-			{ID: "shimmer", Name: "shimmer"},
-			{ID: "verse", Name: "verse"},
-			{ID: "marin", Name: "marin"},
-			{ID: "cedar", Name: "cedar"},
-		},
 	}, nil
 }
 

@@ -30,14 +30,14 @@ func TestProviderCapabilities(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Capabilities: %v", err)
 	}
-	if len(caps.Voices) != 1 || caps.Voices[0].ID != "Cherry" {
-		t.Fatalf("voices = %#v, want Cherry", caps.Voices)
+	if len(caps.Voices) != 0 {
+		t.Fatalf("voices = %#v, want no platform voice restriction", caps.Voices)
 	}
 	if len(caps.OutputSampleRates) != 1 || caps.OutputSampleRates[0] != audio.OpusSampleRate {
 		t.Fatalf("output sample rates = %#v, want %d", caps.OutputSampleRates, audio.OpusSampleRate)
 	}
-	if len(caps.Languages) != 11 {
-		t.Fatalf("languages length = %d, want 11", len(caps.Languages))
+	if len(caps.Languages) != 0 {
+		t.Fatalf("languages = %#v, want no platform language restriction", caps.Languages)
 	}
 	if !caps.SupportsAppendText {
 		t.Fatal("SupportsAppendText = false, want true")

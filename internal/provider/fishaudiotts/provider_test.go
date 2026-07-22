@@ -39,8 +39,8 @@ func TestProviderCapabilities(t *testing.T) {
 	if len(caps.OutputContainers) != 1 || caps.OutputContainers[0] != audio.ContainerOgg {
 		t.Fatalf("OutputContainers = %#v, want ogg", caps.OutputContainers)
 	}
-	if len(caps.Voices) != 1 || caps.Voices[0].ID != "voice-id" {
-		t.Fatalf("Voices = %#v, want voice-id", caps.Voices)
+	if len(caps.Voices) != 0 {
+		t.Fatalf("Voices = %#v, want no platform voice restriction", caps.Voices)
 	}
 }
 

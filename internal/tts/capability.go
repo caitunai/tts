@@ -46,6 +46,7 @@ type ProviderCapabilities struct {
 	SupportsOggOpusOutput   bool
 	SupportsPCMOutput       bool
 
+	// Empty lists mean the provider does not expose a finite platform-side allowlist.
 	Voices    []VoiceInfo
 	Languages []LanguageInfo
 }
