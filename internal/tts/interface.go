@@ -12,6 +12,8 @@ type Service interface {
 
 	Capabilities(ctx context.Context) (*ServiceCapabilities, error)
 
+	// SynthesizeOnce streams events until synthesis ends or ctx is cancelled.
+	// Cancel ctx when abandoning the event stream so blocked forwarding exits.
 	SynthesizeOnce(ctx context.Context, req *SynthesizeRequest) (<-chan *Event, error)
 
 	OpenSession(ctx context.Context, req *OpenSessionRequest) (Session, error)

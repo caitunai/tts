@@ -323,7 +323,7 @@ func (s *providerBackedSession) markClosed() {
 	s.state = SessionStateClosed
 }
 
-func providerEventsToEvents(providerEvents <-chan *ProviderEvent, output audio.OutputConfig) <-chan *Event {
+func providerEventsToEvents(ctx context.Context, providerEvents <-chan *ProviderEvent, output audio.OutputConfig) <-chan *Event {
 	events := make(chan *Event, defaultEventBufferSize)
 	go func() {
 		defer close(events)
@@ -331,9 +331,29 @@ func providerEventsToEvents(providerEvents <-chan *ProviderEvent, output audio.O
 			return
 		}
 		mapper := newEventMapper(output)
-		for event := range providerEvents {
+		for {
+			if ctx.Err() != nil {
+				return
+			}
+			var event *ProviderEvent
+			select {
+			case <-ctx.Done():
+				return
+			case next, ok := <-providerEvents:
+				if !ok {
+					return
+				}
+				event = next
+			}
 			for _, mappedEvent := range mapper.convert(event) {
-				events <- mappedEvent
+				if ctx.Err() != nil {
+					return
+				}
+				select {
+				case <-ctx.Done():
+					return
+				case events <- mappedEvent:
+				}
 			}
 			if event != nil && event.Type == ProviderEventSessionEnd {
 				return

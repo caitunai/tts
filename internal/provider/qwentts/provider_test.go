@@ -1,16 +1,145 @@
 package qwentts
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/caitunai/tts/internal/audio"
+	registryprovider "github.com/caitunai/tts/internal/provider"
 	"github.com/caitunai/tts/internal/tts"
 )
+
+func TestProviderStreamsSSEWAVBeforeEOF(t *testing.T) {
+	pcm := []byte{1, 0, 2, 0, 3, 0, 4, 0}
+	wav := makeTestWAV(pcm, 16000, 1, true)
+	// Streaming headers can advertise unknown/estimated RIFF and data sizes.
+	binary.LittleEndian.PutUint32(wav[4:8], ^uint32(0))
+	binary.LittleEndian.PutUint32(wav[len(wav)-len(pcm)-4:], ^uint32(0))
+	release := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		for _, chunk := range [][]byte{wav[:2], wav[2:25], wav[25:]} {
+			writeSSE(t, w, `{"output":{"audio":{"data":"`+base64.StdEncoding.EncodeToString(chunk)+`"}}}`)
+			w.(http.Flusher).Flush()
+		}
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+	}))
+	t.Cleanup(func() {
+		close(release)
+		server.Close()
+	})
+	provider, err := NewProvider(Config{Endpoint: server.URL, Model: "qwen3-tts-flash"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, err := provider.SynthesizeOnce(t.Context(), &tts.ProviderSynthesizeRequest{Text: "hello"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, wantType := range []tts.ProviderEventType{tts.ProviderEventSegmentStart, tts.ProviderEventAudio} {
+		select {
+		case event := <-events:
+			if event.Type != wantType {
+				t.Fatalf("event = %+v, want %s", event, wantType)
+			}
+			if wantType == tts.ProviderEventAudio {
+				if !bytes.Equal(event.Audio.Data, pcm) {
+					t.Fatalf("audio = %v, want header-free PCM %v", event.Audio.Data, pcm)
+				}
+				if event.Audio.SampleRate != 16000 || event.Audio.Channels != 1 || event.Audio.Container != audio.ContainerRaw {
+					t.Fatalf("audio parameters = %+v, want WAV metadata and raw PCM", event.Audio)
+				}
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatal("PCM was not emitted before HTTP EOF")
+		}
+	}
+	release <- struct{}{}
+	remaining := collectProviderEvents(events)
+	if len(remaining) != 1 || remaining[0].Type != tts.ProviderEventSegmentEnd {
+		t.Fatalf("remaining events = %+v, want segment_end", remaining)
+	}
+}
+
+func TestProviderReportsTruncatedWAVHeader(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		writeSSE(t, w, `{"output":{"audio":{"data":"`+base64.StdEncoding.EncodeToString([]byte("RIFF"))+`"}}}`)
+	}))
+	defer server.Close()
+	provider, err := NewProvider(Config{Endpoint: server.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, err := provider.SynthesizeOnce(t.Context(), &tts.ProviderSynthesizeRequest{Text: "hello"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := collectProviderEvents(events)
+	if len(got) != 2 || got[1].Type != tts.ProviderEventError || got[1].Error.Code != tts.ErrAudioDecodeFailed {
+		t.Fatalf("events = %+v, want segment_start followed by audio decode error", got)
+	}
+}
+
+func TestServiceOutputsWAVAsHeaderFreePCMFrames(t *testing.T) {
+	pcm := bytes.Repeat([]byte{0x34, 0x12}, 640)
+	wav := makeTestWAV(pcm, 16000, 1, false)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		for _, chunk := range [][]byte{wav[:43], wav[43:47], wav[47:]} {
+			writeSSE(t, w, `{"output":{"audio":{"data":"`+base64.StdEncoding.EncodeToString(chunk)+`"}}}`)
+		}
+	}))
+	defer server.Close()
+	provider, err := NewProvider(Config{Endpoint: server.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry := registryprovider.NewRegistry()
+	if err := registry.Register(provider); err != nil {
+		t.Fatal(err)
+	}
+	service := tts.NewService("qwen-wav-test", registry)
+	events, err := service.SynthesizeOnce(t.Context(), &tts.SynthesizeRequest{
+		Provider: provider.Name(),
+		Text:     "hello",
+		Output:   audio.DefaultOutputConfig(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []byte
+	frames := 0
+	ended := false
+	for event := range events {
+		switch event.Type {
+		case tts.EventError:
+			t.Fatal(event.Error)
+		case tts.EventAudioFrame:
+			frame := event.Audio
+			if frame.SampleRate != 16000 || frame.Channels != 1 || frame.FrameMS != 20 || len(frame.Data) != 640 {
+				t.Fatalf("frame rate=%d channels=%d duration=%d bytes=%d, want 16kHz mono 20ms PCM", frame.SampleRate, frame.Channels, frame.FrameMS, len(frame.Data))
+			}
+			got = append(got, frame.Data...)
+			frames++
+		case tts.EventSegmentEnd:
+			ended = true
+		}
+	}
+	if !ended || frames != 2 || !bytes.Equal(got, pcm) {
+		t.Fatalf("ended=%t frames=%d PCM matches=%t, want segment_end and two header-free frames", ended, frames, bytes.Equal(got, pcm))
+	}
+}
 
 func TestProviderStreamsSSEPCM(t *testing.T) {
 	var gotBody requestBody

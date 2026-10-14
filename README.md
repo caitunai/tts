@@ -328,6 +328,12 @@ provider, err := qwenhttp.NewProvider(qwenhttp.Config{
 })
 ```
 
+Qwen HTTP SSE 的音频支持 raw PCM 和带 RIFF/WAVE header 的流式 s16le PCM。
+Provider 自动识别并剥离 WAV header，从 header 读取采样率与声道数，再交给平台
+输出 PCM frame；header 可以跨多个 SSE 事件分片。
+调用 `SynthesizeOnce` 后如果提前停止读取事件，应取消传入的 context。
+Qwen Provider 和应用层事件转发会退出阻塞发送并关闭 HTTP 响应体与事件 channel。
+
 ### Qwen Realtime WebSocket TTS
 
 ```go

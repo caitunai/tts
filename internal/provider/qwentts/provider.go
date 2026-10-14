@@ -19,7 +19,7 @@ import (
 
 const (
 	defaultProviderName = "qwen_tts"
-	defaultModel        = "qwen3-tts-instruct-flash"
+	defaultModel        = "qwen3-tts-flash"
 	defaultSampleRate   = 24000
 	defaultSegmentID    = "seg_001"
 
@@ -159,14 +159,14 @@ func (p *Provider) stream(ctx context.Context, req *tts.ProviderSynthesizeReques
 
 	resp, err := p.doRequest(ctx, req)
 	if err != nil {
-		events <- p.errorEvent(req, segmentID, &tts.Error{
+		_ = emitEvent(ctx, events, p.errorEvent(req, segmentID, &tts.Error{
 			Code:      tts.ErrProviderUnavailable,
 			Message:   err.Error(),
 			Provider:  p.name,
 			SegmentID: segmentID,
 			Cause:     err,
 			Retryable: true,
-		})
+		}))
 		return
 	}
 	defer func(body io.ReadCloser) {
@@ -174,25 +174,31 @@ func (p *Provider) stream(ctx context.Context, req *tts.ProviderSynthesizeReques
 	}(resp.RawBody())
 
 	if resp.StatusCode() < http.StatusOK || resp.StatusCode() >= http.StatusMultipleChoices {
-		events <- p.errorEvent(req, segmentID, statusError(p.name, segmentID, resp))
+		_ = emitEvent(ctx, events, p.errorEvent(req, segmentID, statusError(p.name, segmentID, resp)))
 		return
 	}
 
-	events <- &tts.ProviderEvent{
+	if err := emitEvent(ctx, events, &tts.ProviderEvent{
 		Type:      tts.ProviderEventSegmentStart,
 		Provider:  p.name,
 		RequestID: req.RequestID,
 		SegmentID: segmentID,
+	}); err != nil {
+		return
 	}
 
 	parser := &tts.SSEParser{}
+	decoder := newAudioStreamDecoder(p.sampleRate)
 	reader := bufio.NewReader(resp.RawBody())
 	for {
+		if ctx.Err() != nil {
+			return
+		}
 		line, readErr := reader.ReadString('\n')
 		if len(line) > 0 {
 			line = strings.TrimRight(line, "\r\n")
-			if err := p.handleLine(parser, line, req, segmentID, events); err != nil {
-				events <- p.errorEvent(req, segmentID, err)
+			if err := p.handleLine(ctx, parser, decoder, line, req, segmentID, events); err != nil {
+				_ = emitEvent(ctx, events, p.errorEvent(req, segmentID, err))
 				return
 			}
 		}
@@ -201,29 +207,38 @@ func (p *Provider) stream(ctx context.Context, req *tts.ProviderSynthesizeReques
 			continue
 		}
 		if readErr == io.EOF {
-			if err := p.handleLine(parser, "", req, segmentID, events); err != nil {
-				events <- p.errorEvent(req, segmentID, err)
+			if err := p.handleLine(ctx, parser, decoder, "", req, segmentID, events); err != nil {
+				_ = emitEvent(ctx, events, p.errorEvent(req, segmentID, err))
 				return
 			}
 			break
 		}
-		events <- p.errorEvent(req, segmentID, &tts.Error{
+		_ = emitEvent(ctx, events, p.errorEvent(req, segmentID, &tts.Error{
 			Code:      tts.ErrProviderUnavailable,
 			Message:   readErr.Error(),
 			Provider:  p.name,
 			SegmentID: segmentID,
 			Cause:     readErr,
 			Retryable: true,
-		})
+		}))
 		return
 	}
 
-	events <- &tts.ProviderEvent{
+	pcm, err := decoder.Finish()
+	if err != nil {
+		_ = emitEvent(ctx, events, p.errorEvent(req, segmentID, p.audioDecodeError(segmentID, err)))
+		return
+	}
+	if err := p.emitPCM(ctx, req, segmentID, pcm, events); err != nil {
+		return
+	}
+
+	_ = emitEvent(ctx, events, &tts.ProviderEvent{
 		Type:      tts.ProviderEventSegmentEnd,
 		Provider:  p.name,
 		RequestID: req.RequestID,
 		SegmentID: segmentID,
-	}
+	})
 }
 
 func (p *Provider) doRequest(ctx context.Context, req *tts.ProviderSynthesizeRequest) (*resty.Response, error) {
@@ -250,7 +265,7 @@ func (p *Provider) doRequest(ctx context.Context, req *tts.ProviderSynthesizeReq
 	return request.Post(p.endpoint)
 }
 
-func (p *Provider) handleLine(parser *tts.SSEParser, line string, req *tts.ProviderSynthesizeRequest, segmentID string, events chan<- *tts.ProviderEvent) error {
+func (p *Provider) handleLine(ctx context.Context, parser *tts.SSEParser, decoder *audioStreamDecoder, line string, req *tts.ProviderSynthesizeRequest, segmentID string, events chan<- *tts.ProviderEvent) error {
 	event := parser.FeedLine(line)
 	if event == nil || event.Data == "" {
 		return nil
@@ -270,7 +285,7 @@ func (p *Provider) handleLine(parser *tts.SSEParser, line string, req *tts.Provi
 		return nil
 	}
 
-	pcm, err := base64.StdEncoding.DecodeString(resp.Output.Audio.Data)
+	data, err := base64.StdEncoding.DecodeString(resp.Output.Audio.Data)
 	if err != nil {
 		return &tts.Error{
 			Code:      tts.ErrAudioDecodeFailed,
@@ -281,7 +296,28 @@ func (p *Provider) handleLine(parser *tts.SSEParser, line string, req *tts.Provi
 		}
 	}
 
-	events <- &tts.ProviderEvent{
+	pcm, err := decoder.Push(data)
+	if err != nil {
+		return p.audioDecodeError(segmentID, err)
+	}
+	return p.emitPCM(ctx, req, segmentID, pcm, events)
+}
+
+func (p *Provider) audioDecodeError(segmentID string, err error) *tts.Error {
+	return &tts.Error{
+		Code:      tts.ErrAudioDecodeFailed,
+		Message:   fmt.Sprintf("decode qwen tts audio stream: %v", err),
+		Provider:  p.name,
+		SegmentID: segmentID,
+		Cause:     err,
+	}
+}
+
+func (p *Provider) emitPCM(ctx context.Context, req *tts.ProviderSynthesizeRequest, segmentID string, pcm audio.PCMData, events chan<- *tts.ProviderEvent) error {
+	if len(pcm.Data) == 0 {
+		return ctx.Err()
+	}
+	return emitEvent(ctx, events, &tts.ProviderEvent{
 		Type:      tts.ProviderEventAudio,
 		Provider:  p.name,
 		RequestID: req.RequestID,
@@ -289,13 +325,24 @@ func (p *Provider) handleLine(parser *tts.SSEParser, line string, req *tts.Provi
 		Audio: &tts.ProviderAudioChunk{
 			Codec:      audio.CodecPCM,
 			Container:  audio.ContainerRaw,
-			SampleRate: p.sampleRate,
-			Channels:   audio.DefaultChannels,
-			Format:     audio.PCMFormatS16LE,
-			Data:       pcm,
+			SampleRate: pcm.SampleRate,
+			Channels:   pcm.Channels,
+			Format:     pcm.Format,
+			Data:       pcm.Data,
 		},
+	})
+}
+
+func emitEvent(ctx context.Context, events chan<- *tts.ProviderEvent, event *tts.ProviderEvent) error {
+	if err := ctx.Err(); err != nil {
+		return err
 	}
-	return nil
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case events <- event:
+		return nil
+	}
 }
 
 func (p *Provider) errorEvent(req *tts.ProviderSynthesizeRequest, segmentID string, err error) *tts.ProviderEvent {
