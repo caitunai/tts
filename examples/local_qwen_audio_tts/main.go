@@ -16,9 +16,9 @@ import (
 )
 
 const (
-	defaultModel    = "qwen-audio-3.0-tts-flash"
-	defaultVoice    = "longanlingxi"
-	defaultText     = "你好，这是 Qwen Audio 三点零的实时语音合成测试。"
+	defaultModel    = qwenaudio.ModelQwenAudio31TTSFlash
+	defaultVoice    = "longanhuan_v3.1"
+	defaultText     = "你好，这是 Qwen Audio 三点一的实时语音合成测试。"
 	defaultLanguage = "zh"
 	defaultOutput   = "local_qwen_audio_tts.ogg"
 )

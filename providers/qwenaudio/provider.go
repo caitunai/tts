@@ -1,4 +1,4 @@
-// Package qwenaudio exposes Alibaba Cloud Qwen Audio 3.0 realtime WebSocket TTS.
+// Package qwenaudio exposes Alibaba Cloud Qwen Audio 3.0 and 3.1 realtime WebSocket TTS.
 package qwenaudio
 
 import (
@@ -11,6 +11,12 @@ import (
 type Config = internal.Config
 
 const ProviderName = "qwen_audio_tts"
+
+const (
+	ModelQwenAudio30TTSFlash = internal.ModelQwenAudio30TTSFlash
+	ModelQwenAudio30TTSPlus  = internal.ModelQwenAudio30TTSPlus
+	ModelQwenAudio31TTSFlash = internal.ModelQwenAudio31TTSFlash
+)
 
 type Provider struct {
 	inner *internal.Provider

@@ -63,6 +63,45 @@ func TestSessionFinishWaitsForQueuedSegments(t *testing.T) {
 	providerSession.requireFinished(t)
 }
 
+type pipelinedProviderSession struct {
+	*controlledProviderSession
+}
+
+func (*pipelinedProviderSession) SupportsPipelinedText() bool { return true }
+
+func TestSessionPipelinedTextDoesNotWaitForAudio(t *testing.T) {
+	provider := &pipelinedProviderSession{newControlledProviderSession("sess")}
+	session := newProviderBackedSession("mock", audio.OutputConfig{}, provider)
+	t.Cleanup(func() { _ = session.Close() })
+	events := session.Events()
+
+	for _, id := range []string{"seg_1", "seg_2"} {
+		if err := session.AppendText(t.Context(), &SegmentRequest{SegmentID: id, Text: id}); err != nil {
+			t.Fatalf("AppendText %s: %v", id, err)
+		}
+		provider.requireSent(t, id)
+	}
+	if err := session.Finish(t.Context()); err != nil {
+		t.Fatalf("Finish: %v", err)
+	}
+	provider.requireFinished(t)
+
+	for _, id := range []string{"seg_1", "seg_2"} {
+		provider.emit(&ProviderEvent{Type: ProviderEventSegmentStart, SegmentID: id})
+		provider.emit(&ProviderEvent{Type: ProviderEventSegmentEnd, SegmentID: id})
+		requireEvent(t, events, EventSegmentStart, id)
+		requireEvent(t, events, EventSegmentEnd, id)
+	}
+	provider.emit(&ProviderEvent{Type: ProviderEventSessionEnd})
+	requireEvent(t, events, EventSessionEnd, "")
+	if _, ok := <-events; ok {
+		t.Fatal("events still open after session_end")
+	}
+	if provider.finishCalls != 1 {
+		t.Fatalf("Finish calls = %d, want 1", provider.finishCalls)
+	}
+}
+
 func TestSessionRejectsAppendAfterFinish(t *testing.T) {
 	providerSession := newControlledProviderSession("sess")
 	session := newProviderBackedSession("mock", audio.OutputConfig{}, providerSession)

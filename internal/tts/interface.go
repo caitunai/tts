@@ -59,3 +59,11 @@ type ProviderSession interface {
 
 	Close() error
 }
+
+// ProviderTextStreamSession lets a provider receive subsequent text before the
+// previous segment's audio ends. Implementations preserve FIFO output events
+// and accept Finish while audio is still streaming to flush buffered text.
+type ProviderTextStreamSession interface {
+	ProviderSession
+	SupportsPipelinedText() bool
+}

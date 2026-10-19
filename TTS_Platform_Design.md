@@ -661,6 +661,12 @@ Provider Adapter 需要维护映射关系。
 
 如果某个 Provider 原生支持“前一段未结束时继续追加文本”，Provider Adapter 可以内部提前发送，但平台对外仍然保持 FIFO 事件顺序。
 
+实现时可通过可选的 `ProviderTextStreamSession.SupportsPipelinedText()` 声明此能力。
+平台会串行发送该 Provider 的输入文本，并允许 `Finish` 在音频结束前发送，以刷新
+尚未成句的文本；默认 Provider 仍等待前一段结束后再发送后一段。提前发送输入不代表
+提前结束输出，Adapter 必须依据上游事件保证上述 FIFO 语义，不能在文本发送完成时
+就发送 `segment_end`。原生句子边界也不一定等于应用 `AppendText` 的 Segment 边界。
+
 如果未来需要支持并行 Segment，需要显式新增能力：
 
 ```text

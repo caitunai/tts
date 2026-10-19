@@ -10,9 +10,11 @@ import (
 const defaultEventBufferSize = 16
 
 type providerBackedSession struct {
-	providerName string
-	output       audio.OutputConfig
-	provider     ProviderSession
+	providerName  string
+	output        audio.OutputConfig
+	provider      ProviderSession
+	pipelinedText bool
+	inputMu       sync.Mutex
 
 	mu        sync.Mutex
 	state     SessionState
@@ -30,13 +32,15 @@ type providerBackedSession struct {
 }
 
 func newProviderBackedSession(providerName string, output audio.OutputConfig, provider ProviderSession) Session {
+	streaming, ok := provider.(ProviderTextStreamSession)
 	return &providerBackedSession{
-		providerName: providerName,
-		output:       output,
-		provider:     provider,
-		state:        SessionStateReady,
-		segments:     make(map[string]SegmentState),
-		done:         make(chan struct{}),
+		providerName:  providerName,
+		output:        output,
+		provider:      provider,
+		pipelinedText: ok && streaming.SupportsPipelinedText(),
+		state:         SessionStateReady,
+		segments:      make(map[string]SegmentState),
+		done:          make(chan struct{}),
 	}
 }
 
@@ -56,6 +60,10 @@ func (s *providerBackedSession) Output() audio.OutputConfig {
 }
 
 func (s *providerBackedSession) AppendText(ctx context.Context, segment *SegmentRequest) error {
+	if s.pipelinedText {
+		s.inputMu.Lock()
+		defer s.inputMu.Unlock()
+	}
 	if s.provider == nil {
 		return internalError("provider session is nil")
 	}
@@ -72,8 +80,10 @@ func (s *providerBackedSession) AppendText(ctx context.Context, segment *Segment
 		return sessionClosedError(s.providerName, s.ID())
 	}
 
-	if s.activeID == "" && len(s.queue) == 0 {
-		s.activeID = segmentCopy.SegmentID
+	if s.pipelinedText || s.activeID == "" && len(s.queue) == 0 {
+		if !s.pipelinedText || s.activeID == "" {
+			s.activeID = segmentCopy.SegmentID
+		}
 		s.state = SessionStateSynthesizing
 		s.segments[segmentCopy.SegmentID] = SegmentStateSentToProvider
 		s.mu.Unlock()
@@ -92,6 +102,10 @@ func (s *providerBackedSession) AppendText(ctx context.Context, segment *Segment
 }
 
 func (s *providerBackedSession) Finish(ctx context.Context) error {
+	if s.pipelinedText {
+		s.inputMu.Lock()
+		defer s.inputMu.Unlock()
+	}
 	if s.provider == nil {
 		return internalError("provider session is nil")
 	}
@@ -107,7 +121,7 @@ func (s *providerBackedSession) Finish(ctx context.Context) error {
 	}
 
 	s.finishing = true
-	shouldFinish := s.activeID == "" && len(s.queue) == 0
+	shouldFinish := s.pipelinedText || s.activeID == "" && len(s.queue) == 0
 	if shouldFinish {
 		s.state = SessionStateFinishing
 	}
@@ -262,6 +276,20 @@ func (s *providerBackedSession) completeActiveLocked(segmentID string, state Seg
 	}
 	if segmentID == "" || segmentID == s.activeID {
 		s.activeID = ""
+	}
+	if s.pipelinedText {
+		if s.finishing {
+			s.state = SessionStateFinishing
+		} else {
+			s.state = SessionStateReady
+			for _, segmentState := range s.segments {
+				if segmentState == SegmentStateSentToProvider || segmentState == SegmentStateReceivingAudio {
+					s.state = SessionStateSynthesizing
+					break
+				}
+			}
+		}
+		return nil, false
 	}
 
 	if len(s.queue) > 0 {

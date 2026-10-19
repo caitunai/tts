@@ -7,6 +7,7 @@ type Service = internal.Service
 type Provider = internal.Provider
 type Session = internal.Session
 type ProviderSession = internal.ProviderSession
+type ProviderTextStreamSession = internal.ProviderTextStreamSession
 type ProviderRegistry = internal.ProviderRegistry
 type DefaultService = internal.DefaultService
 

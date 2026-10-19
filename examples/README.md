@@ -87,18 +87,20 @@ Qwen realtime Opus audio is treated as 48 kHz throughout the provider and platfo
 
 ## local_qwen_audio_tts
 
-Run against Alibaba Cloud Qwen Audio 3.0 realtime WebSocket TTS API:
+Run against Alibaba Cloud Qwen Audio 3.1 Flash realtime WebSocket TTS API
+using the existing Qwen Audio provider:
 
 ```sh
 export DASHSCOPE_API_KEY="your-token"
 export QWEN_AUDIO_TTS_ENDPOINT="wss://{workspace}.cn-beijing.maas.aliyuncs.com/api-ws/v1/inference"
 go run ./examples/local_qwen_audio_tts \
-  -model qwen-audio-3.0-tts-flash \
-  -voice longanlingxi \
+  -model qwen-audio-3.1-tts-flash \
+  -voice longanhuan_v3.1 \
   -language zh \
   -instruction "温暖自然的语气" \
   -text "你好，今天天气怎么样呢？" \
   -append-text "这是第二段追加文本，用来验证 continue-task 是否生效。" \
+  -finish-delay 0 \
   -out local_qwen_audio_tts.ogg
 ```
 
@@ -106,13 +108,61 @@ Use `-finish-delay 0` to send `finish-task` immediately after the last
 `continue-task`; omit it or pass `-finish-delay -1` to use the provider default
 of 500 ms.
 
-Qwen Audio 3.0 uses the raw WebSocket `run-task` / `continue-task` /
+Qwen Audio 3.0 and 3.1 use the same raw WebSocket `run-task` / `continue-task` /
 `finish-task` protocol and sends Ogg-wrapped Opus binary frames. The platform
 demuxes them into raw Opus packets at 48 kHz, and this example wraps those
 packets back into an Ogg Opus file for playback:
 
 ```sh
 ffplay local_qwen_audio_tts.ogg
+```
+
+The example defaults to `qwen-audio-3.1-tts-flash` and `longanhuan_v3.1`.
+For 3.0, pass both `-model qwen-audio-3.0-tts-flash` (or
+`qwen-audio-3.0-tts-plus`) and a matching voice, such as `-voice longanhuan_v3.6`.
+Voice IDs are model-specific; see the [official voice list](https://help.aliyun.com/zh/model-studio/qwen-audio-tts-voice-list).
+The endpoint and API key must belong to the same region. The Beijing endpoint
+above must not have a trailing slash; Singapore uses
+`wss://{workspace}.ap-southeast-1.maas.aliyuncs.com/api-ws/v1/inference`.
+
+## local_qwen_audio_http_tts
+
+Qwen Audio HTTP non-realtime synthesis supports SSE streaming (default) and
+non-streaming JSON responses with signed audio URLs. The example requests Opus
+at 48 kHz and rewraps the platform's raw Opus packets into a playable Ogg file.
+It does not use the older `local_qwen_tts` protocol or a WebSocket session.
+
+```sh
+export DASHSCOPE_API_KEY="your-api-key"
+export QWEN_AUDIO_HTTP_TTS_ENDPOINT="https://{workspace}.cn-beijing.maas.aliyuncs.com/api/v1/services/audio/tts/SpeechSynthesizer"
+go run ./examples/local_qwen_audio_http_tts \
+  -model qwen-audio-3.1-tts-flash \
+  -voice longanhuan_v3.1 \
+  -language zh \
+  -instruction "温暖自然的语气" \
+  -text "这是第一句话。这是同一次请求中的第二句话。" \
+  -out local_qwen_audio_http_tts.ogg
+```
+
+To test the non-streaming JSON + URL-download path:
+
+```sh
+go run ./examples/local_qwen_audio_http_tts \
+  -non-streaming \
+  -text "这是非流式合成的测试。" \
+  -out local_qwen_audio_http_non_streaming.ogg
+```
+
+Use the same region for your workspace and API key. For Singapore, replace
+`cn-beijing` with `ap-southeast-1`. For 3.0, set both the model and a matching
+voice, for example `-model qwen-audio-3.0-tts-flash -voice longanhuan_v3.6`.
+`-rate`, `-pitch`, `-volume`, `-bit-rate`, `-seed`, and `-ssml` control the
+corresponding input parameters. `-word-timestamps` is available only for SSE
+and supported voices. The example prints upstream usage and sentence metadata
+when synthesis completes.
+
+```sh
+ffplay local_qwen_audio_http_tts.ogg
 ```
 
 ## local_minimax_tts

@@ -36,6 +36,7 @@ github.com/caitunai/tts/providers/vllm
 github.com/caitunai/tts/providers/qwenhttp
 github.com/caitunai/tts/providers/qwenrealtime
 github.com/caitunai/tts/providers/qwenaudio
+github.com/caitunai/tts/providers/qwenaudiohttp
 github.com/caitunai/tts/providers/cartesia
 github.com/caitunai/tts/providers/deepgram
 github.com/caitunai/tts/providers/microsoft
@@ -291,6 +292,7 @@ for event := range session.Events() {
 | `providers/qwenhttp` | HTTP SSE | base64 PCM | 16 kHz mono PCM frames |
 | `providers/qwenrealtime` | WebSocket | Ogg-wrapped Opus | raw Opus packets, 48 kHz |
 | `providers/qwenaudio` | WebSocket | Ogg-wrapped Opus binary frames | raw Opus packets, 48 kHz |
+| `providers/qwenaudiohttp` | HTTP SSE / JSON + audio URL | Ogg-wrapped Opus | raw Opus packets, 48 kHz |
 | `providers/cartesia` | WebSocket | base64 raw PCM | 16 kHz mono PCM frames |
 | `providers/deepgram` | HTTP | Ogg-wrapped Opus | raw Opus packets, 48 kHz |
 | `providers/microsoft` | HTTP | Ogg-wrapped Opus | raw Opus packets, 48 kHz |
@@ -346,25 +348,100 @@ provider, err := qwenrealtime.NewProvider(qwenrealtime.Config{
 })
 ```
 
-### Qwen Audio 3.0 Realtime WebSocket TTS
+### Qwen Audio 3.0 / 3.1 Realtime WebSocket TTS
 
 ```go
 provider, err := qwenaudio.NewProvider(qwenaudio.Config{
 	Name:            qwenaudio.ProviderName,
 	Endpoint:        os.Getenv("QWEN_AUDIO_TTS_ENDPOINT"),
 	APIKey:          os.Getenv("DASHSCOPE_API_KEY"),
-	Model:           "qwen-audio-3.0-tts-flash",
-	DefaultVoice:    "longanlingxi",
+	Model:           qwenaudio.ModelQwenAudio31TTSFlash,
+	DefaultVoice:    "longanhuan_v3.1",
 	DefaultLanguage: "zh",
 	BitRate:         32,
 })
 ```
 
-Qwen Audio 3.0 使用 `run-task` / `continue-task` / `finish-task` 的实时
+Qwen Audio 3.0 和 3.1 复用同一个 `providers/qwenaudio` Provider，使用
+`run-task` / `continue-task` / `finish-task` 的实时
 WebSocket 协议。Provider 请求 `format=opus`、`sample_rate=48000`，服务端
 `result-generated` 事件后的 binary audio frame 会作为 Ogg-wrapped Opus
 交给平台 demux，应用层拿到 raw Opus packets。`OpenSessionRequest.GuidanceText`
 会映射到 Qwen Audio 的 `instruction` 参数。
+
+此 Provider 支持在上一段音频尚未结束时发送后续 `AppendText`，`Finish` 也会立即
+通知上游刷新缓存文本；不会通过提前发送 `segment_end` 来推进队列。
+对外事件仍按 `segment_start → audio_frame → segment_end` 串行输出，最后一段
+等待 `task-finished`，确保尾部音频在 `segment_end` 之前交付。一次输入包含多个
+句子时，会等待整段文本完成。建议按完整句子追加；上游把跨段文本合并为同一句时，
+该句音频归属于最早的未完成段，不会为匹配输入边界强行拆分 Opus packet。
+若上游缺少或改写了用于定位边界的 `original_text`，无法可靠确认的段会等到
+`task-finished` 后依次结束。
+
+可选模型常量为 `ModelQwenAudio30TTSFlash`、`ModelQwenAudio30TTSPlus` 和
+`ModelQwenAudio31TTSFlash`。为兼容已有调用，Provider 未配置 `Model` 时仍默认
+使用 3.0 Flash；真实测试例程默认使用 3.1 Flash。切换模型时必须同时使用该模型支持的
+音色，例如 3.1 的 `longanhuan_v3.1`，不能直接沿用 3.0 音色。
+完整列表见[官方音色文档](https://help.aliyun.com/zh/model-studio/qwen-audio-tts-voice-list)。
+`instruction` 支持实时流式合成；文本内的情感与富语言标签按文档仅支持单向流式模式，
+不作为本 Provider 的双向 append-text 功能承诺。
+
+### Qwen Audio Non-Realtime HTTP TTS
+
+`providers/qwenaudiohttp` 对接 `SpeechSynthesizer` HTTP 协议，与
+`providers/qwenaudio`（WebSocket）和 `providers/qwenhttp`（旧版 Qwen HTTP）相互独立。
+支持 Qwen Audio 3.0 Flash/Plus 和 3.1 Flash，默认模型为 3.1 Flash。
+当前音频范围为 Opus：固定请求 `format=opus`、`sample_rate=48000`，不请求 MP3/WAV/PCM。
+
+```go
+p, err := qwenaudiohttp.NewProvider(qwenaudiohttp.Config{
+	Endpoint:     os.Getenv("QWEN_AUDIO_HTTP_TTS_ENDPOINT"),
+	APIKey:       os.Getenv("DASHSCOPE_API_KEY"),
+	Model:        qwenaudiohttp.ModelQwenAudio31TTSFlash,
+	DefaultVoice: "longanhuan_v3.1",
+	BitRate:      32,
+	NonStreaming: false, // false: SSE; true: JSON response + signed audio URL
+})
+```
+
+北京 Endpoint 为 `https://{WorkspaceId}.cn-beijing.maas.aliyuncs.com/api/v1/services/audio/tts/SpeechSynthesizer`，
+新加坡则使用 `ap-southeast-1`。API Key 与业务空间必须属于同一地域，音色须匹配模型版本。
+注册此 Provider 后，通过 `Service.SynthesizeOnce` 调用，Provider 名称为
+`qwenaudiohttp.ProviderName`。可省略 `Output`，由 Provider 能力推导出 48 kHz Opus 输出。
+HTTP 不支持 `OpenSession` / `AppendText`。
+
+`SynthesizeRequest.Language` 会归一化为一个 `input.language_hints`，支持 ISO-639-1、
+ISO-639-3 和 BCP-47；不填则不发送提示，让上游自动判断。`GuidanceText` 映射为
+`input.instruction`。声音复刻/设计所得的 voice ID 可以直接传入，不设置平台音色白名单；
+此接口不直接接收参考音频。
+
+`SynthesizeRequest.Options` 支持以下上游 `input` 参数（不能覆盖 text、voice、format、sample_rate）：
+
+| Key | Type | Notes |
+| --- | --- | --- |
+| `volume` | integer | 0–100，允许显式静音 |
+| `rate`, `pitch` | number | 0.5–2.0 |
+| `bit_rate` | integer | 6–510，覆盖配置的码率 |
+| `enable_ssml` | boolean | SSML 输入需设为 true；LaTeX 原样传入 |
+| `word_timestamp_enabled` | boolean | 仅 SSE 模式可开启 |
+| `seed` | integer | 0–65535 |
+| `enable_aigc_tag` | boolean | 上游音频水印开关 |
+| `aigc_propagator`, `aigc_propagate_id` | string | 水印传播信息 |
+| `hot_fix` | object | pronunciation / replace 字符串映射数组 |
+
+SSE 复用 `SSEParser`，按序处理 Base64 音频，不把 `sentence-end` 当作请求结束。
+只有处理完 `finish_reason=stop` 中可能携带的最后一块音频后才发送 `segment_end`，
+不会再等待 HTTP 连接 EOF。缺少完成标记的断流会返回错误。
+非流式模式使用单独、默认无鉴权的 `AudioClient` 下载 URL；自定义该客户端时也不要配置 API Key。
+SSE 已收到音频时不会再下载最终 URL，避免重复音频。
+
+`segment_end` 的 `Event.Meta` 保留上游 `request_id`、`usage`、音频 URL/ID/过期时间，
+以及 SSE `sentence-end` 收集的 `sentences`（含字级时间戳）。3.0 使用 characters，
+3.1 使用 input_tokens / output_tokens / total_tokens。
+字级时间戳需模型和音色支持。平台输出 raw Opus 后重新封装的 Ogg 文件不保证保留上游
+容器级 AIGC 标识；需要保留原始标识的场景应使用最终 URL 下载的原文件。
+
+真实例程见 `examples/local_qwen_audio_http_tts`，运行命令见 [Examples](examples/README.md#local_qwen_audio_http_tts)。
 
 ### Microsoft Azure Speech TTS
 

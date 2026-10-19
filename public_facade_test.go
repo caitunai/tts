@@ -17,6 +17,7 @@ import (
 	"github.com/caitunai/tts/providers/minimax"
 	"github.com/caitunai/tts/providers/openai"
 	"github.com/caitunai/tts/providers/qwenaudio"
+	"github.com/caitunai/tts/providers/qwenaudiohttp"
 	"github.com/caitunai/tts/providers/qwenhttp"
 	"github.com/caitunai/tts/providers/qwenrealtime"
 	"github.com/caitunai/tts/providers/vllm"
@@ -33,6 +34,7 @@ var _ tts.Provider = (*microsoft.Provider)(nil)
 var _ tts.Provider = (*minimax.Provider)(nil)
 var _ tts.Provider = (*openai.Provider)(nil)
 var _ tts.Provider = (*qwenaudio.Provider)(nil)
+var _ tts.Provider = (*qwenaudiohttp.Provider)(nil)
 var _ tts.Provider = (*qwenhttp.Provider)(nil)
 var _ tts.Provider = (*qwenrealtime.Provider)(nil)
 var _ tts.Provider = (*vllm.Provider)(nil)
@@ -161,6 +163,13 @@ func TestProviderNameConstantsMatchDefaults(t *testing.T) {
 			want: qwenhttp.ProviderName,
 			new: func() (tts.Provider, error) {
 				return qwenhttp.NewProvider(qwenhttp.Config{Endpoint: "https://example.test"})
+			},
+		},
+		{
+			name: "qwenaudiohttp",
+			want: qwenaudiohttp.ProviderName,
+			new: func() (tts.Provider, error) {
+				return qwenaudiohttp.NewProvider(qwenaudiohttp.Config{Endpoint: "https://example.test/api/v1/services/audio/tts/SpeechSynthesizer"})
 			},
 		},
 		{

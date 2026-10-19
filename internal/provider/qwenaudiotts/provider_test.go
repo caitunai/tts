@@ -2,6 +2,7 @@ package qwenaudiotts
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -138,6 +139,26 @@ func TestProviderFinishDelayConfig(t *testing.T) {
 }
 
 func TestProviderRealtimeSessionStreamsOggOpus(t *testing.T) {
+	tests := []struct {
+		model string
+		voice string
+	}{
+		{"", "longanhuan_v3.6"},
+		{"qwen-audio-test", "longanbella"},
+		{ModelQwenAudio30TTSFlash, "longanhuan_v3.6"},
+		{ModelQwenAudio30TTSPlus, "longanhuan_v3.6"},
+		{ModelQwenAudio31TTSFlash, "longanhuan_v3.1"},
+	}
+	for _, tt := range tests {
+		name := cmp.Or(tt.model, "default 3.0 Flash")
+		t.Run(name, func(t *testing.T) {
+			testProviderRealtimeSessionStreamsOggOpus(t, tt.model, tt.voice)
+		})
+	}
+}
+
+func testProviderRealtimeSessionStreamsOggOpus(t *testing.T, model, voice string) {
+	t.Helper()
 	server := newQwenAudioTestServer(t)
 	defer server.close()
 
@@ -145,7 +166,7 @@ func TestProviderRealtimeSessionStreamsOggOpus(t *testing.T) {
 		Name:                "qwen_audio_test",
 		Endpoint:            server.url,
 		APIKey:              "test-token",
-		Model:               "qwen-audio-test",
+		Model:               model,
 		DefaultVoice:        "longanlingxi",
 		DefaultLanguage:     "zh",
 		DefaultInstructions: "default style",
@@ -156,12 +177,12 @@ func TestProviderRealtimeSessionStreamsOggOpus(t *testing.T) {
 		t.Fatalf("NewProvider: %v", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 
 	session, err := provider.OpenSession(ctx, &tts.ProviderOpenSessionRequest{
 		SessionID:    "sess_001",
-		Voice:        "longanbella",
+		Voice:        voice,
 		Language:     "en",
 		GuidanceText: "warm narration",
 	})
@@ -180,14 +201,15 @@ func TestProviderRealtimeSessionStreamsOggOpus(t *testing.T) {
 	}
 
 	runTask := server.nextProtocolMessage()
+	wantModel := cmp.Or(model, ModelQwenAudio30TTSFlash)
 	if runTask.Header.Action != "run-task" {
 		t.Fatalf("run action = %q, want run-task", runTask.Header.Action)
 	}
 	if !server.messageHasInput("run-task") {
 		t.Fatal("run-task payload.input is missing from encoded JSON")
 	}
-	if runTask.Payload.Model != "qwen-audio-test" {
-		t.Fatalf("model = %q, want qwen-audio-test", runTask.Payload.Model)
+	if runTask.Payload.Model != wantModel {
+		t.Fatalf("model = %q, want %q", runTask.Payload.Model, wantModel)
 	}
 	if runTask.Payload.Parameters == nil {
 		t.Fatal("run-task parameters are nil")
@@ -201,8 +223,8 @@ func TestProviderRealtimeSessionStreamsOggOpus(t *testing.T) {
 	if runTask.Payload.Parameters.BitRate != 48 {
 		t.Fatalf("bit_rate = %d, want 48", runTask.Payload.Parameters.BitRate)
 	}
-	if runTask.Payload.Parameters.Voice != "longanbella" {
-		t.Fatalf("voice = %q, want longanbella", runTask.Payload.Parameters.Voice)
+	if runTask.Payload.Parameters.Voice != voice {
+		t.Fatalf("voice = %q, want %q", runTask.Payload.Parameters.Voice, voice)
 	}
 	if runTask.Payload.Parameters.Instruction != "warm narration" {
 		t.Fatalf("instruction = %q, want warm narration", runTask.Payload.Parameters.Instruction)
@@ -248,6 +270,10 @@ func TestProviderRealtimeSessionStreamsOggOpus(t *testing.T) {
 	if !bytes.Equal(audioEvent.Audio.Data, server.ogg) {
 		t.Fatalf("audio data = %v, want %v", audioEvent.Audio.Data, server.ogg)
 	}
+	segEnd := nextProviderEvent(t, events)
+	if segEnd.Type != tts.ProviderEventSegmentEnd || segEnd.SegmentID != "seg_001" {
+		t.Fatalf("first segment end = %#v, want seg_001 after audio", segEnd)
+	}
 	if err := session.AppendText(ctx, &tts.ProviderSegmentRequest{
 		SegmentID: "seg_002",
 		Text:      "world",
@@ -267,15 +293,29 @@ func TestProviderRealtimeSessionStreamsOggOpus(t *testing.T) {
 		t.Fatal("finish-task payload.input is missing from encoded JSON")
 	}
 
-	_ = nextProviderEvent(t, events) // seg_002 start
+	segStart = nextProviderEvent(t, events)
+	if segStart.Type != tts.ProviderEventSegmentStart || segStart.SegmentID != "seg_002" {
+		t.Fatalf("second segment start = %#v, want seg_002", segStart)
+	}
 	_ = nextProviderAudioEvent(t, events, "seg_002")
-	segEnd := nextProviderEvent(t, events)
+	segEnd = nextProviderEvent(t, events)
 	if segEnd.Type != tts.ProviderEventSegmentEnd || segEnd.SegmentID != "seg_002" {
 		t.Fatalf("second segment end = %#v, want seg_002", segEnd)
 	}
 	sessionEnd := nextProviderEvent(t, events)
 	if sessionEnd.Type != tts.ProviderEventSessionEnd {
 		t.Fatalf("session end = %#v, want session_end", sessionEnd)
+	}
+	if model == ModelQwenAudio31TTSFlash {
+		payload, ok := sessionEnd.RawMeta["payload"].(protocolPayload)
+		if !ok {
+			t.Fatalf("session end payload = %#v, want protocol payload", sessionEnd.RawMeta["payload"])
+		}
+		for key, want := range map[string]float64{"input_tokens": 10, "output_tokens": 20, "total_tokens": 30} {
+			if got := payload.Usage[key]; got != want {
+				t.Fatalf("3.1 usage[%s] = %v, want %v", key, got, want)
+			}
+		}
 	}
 }
 
@@ -358,6 +398,7 @@ func newQwenAudioTestServer(t *testing.T) *qwenAudioTestServer {
 			_ = conn.Close()
 		}()
 
+		var model string
 		for {
 			_, raw, err := conn.ReadMessage()
 			if err != nil {
@@ -372,6 +413,7 @@ func newQwenAudioTestServer(t *testing.T) *qwenAudioTestServer {
 			s.rawMessages <- append([]byte(nil), raw...)
 			switch msg.Header.Action {
 			case "run-task":
+				model = msg.Payload.Model
 				writeProtocol(t, conn, "task-started", "")
 			case "continue-task":
 				writeProtocol(t, conn, "result-generated", "sentence-begin")
@@ -380,9 +422,19 @@ func newQwenAudioTestServer(t *testing.T) *qwenAudioTestServer {
 					t.Errorf("WriteMessage audio: %v", err)
 					return
 				}
-				writeProtocol(t, conn, "result-generated", "sentence-end")
+				text, _ := msg.Payload.Input["text"].(string)
+				writeProtocol(t, conn, "result-generated", "sentence-end", text)
 			case "finish-task":
-				writeProtocol(t, conn, "task-finished", "")
+				usage := map[string]any{"characters": 10}
+				if model == ModelQwenAudio31TTSFlash {
+					usage = map[string]any{"input_tokens": 10, "output_tokens": 20, "total_tokens": 30}
+				}
+				if err := conn.WriteJSON(protocolMessage{
+					Header:  protocolHeader{Event: "task-finished"},
+					Payload: protocolPayload{Usage: usage},
+				}); err != nil {
+					t.Errorf("WriteJSON task-finished: %v", err)
+				}
 				return
 			}
 		}
@@ -500,7 +552,7 @@ func newQwenAudioClosingTestServer(t *testing.T) *httptest.Server {
 	}))
 }
 
-func writeProtocol(t *testing.T, conn *websocket.Conn, event, outputType string) {
+func writeProtocol(t *testing.T, conn *websocket.Conn, event, outputType string, originalText ...string) {
 	t.Helper()
 	msg := protocolMessage{
 		Header: protocolHeader{
@@ -509,6 +561,9 @@ func writeProtocol(t *testing.T, conn *websocket.Conn, event, outputType string)
 	}
 	if outputType != "" {
 		msg.Payload.Output = &protocolOutput{Type: outputType}
+		if len(originalText) > 0 {
+			msg.Payload.Output.OriginalText = originalText[0]
+		}
 	}
 	if err := conn.WriteJSON(msg); err != nil {
 		t.Errorf("WriteJSON %s/%s: %v", event, outputType, err)

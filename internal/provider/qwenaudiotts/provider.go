@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/caitunai/tts/internal/audio"
 	langnorm "github.com/caitunai/tts/internal/language"
@@ -18,8 +19,12 @@ import (
 )
 
 const (
+	ModelQwenAudio30TTSFlash = "qwen-audio-3.0-tts-flash"
+	ModelQwenAudio30TTSPlus  = "qwen-audio-3.0-tts-plus"
+	ModelQwenAudio31TTSFlash = "qwen-audio-3.1-tts-flash"
+
 	defaultProviderName = "qwen_audio_tts"
-	defaultModel        = "qwen-audio-3.0-tts-flash"
+	defaultModel        = ModelQwenAudio30TTSFlash
 	defaultFormat       = "opus"
 	defaultTextType     = "PlainText"
 	defaultVolume       = 50
@@ -31,7 +36,7 @@ const (
 	writeTimeout = 30 * time.Second
 )
 
-// Config configures Alibaba Cloud Qwen Audio 3.0 realtime WebSocket TTS.
+// Config configures Alibaba Cloud Qwen Audio realtime WebSocket TTS.
 type Config struct {
 	Name string
 
@@ -39,6 +44,8 @@ type Config struct {
 	APIKey        string
 	Authorization string
 
+	// Model accepts Qwen Audio 3.0 and 3.1 model IDs. Voice IDs must match the
+	// selected model; omitting Model keeps the 3.0 Flash default.
 	Model               string
 	DefaultVoice        string
 	DefaultLanguage     string
@@ -347,17 +354,14 @@ type session struct {
 
 	finishDelay time.Duration
 
-	mu                    sync.Mutex
-	currentSegmentID      string
-	currentSegmentEnded   bool
-	endedSegments         map[string]bool
-	pendingAudioSegmentID string
-	activeAudioSegmentID  string
-	audioSegmentQueue     []string
-	lastSegmentID         string
-	startErrValue         error
-	startedFlag           bool
-	closed                bool
+	inputMu       sync.Mutex
+	mu            sync.Mutex
+	segments      []*inputSegment
+	sentenceText  string
+	startErrValue error
+	startedFlag   bool
+	finishing     bool
+	closed        bool
 
 	writeMu sync.Mutex
 
@@ -373,18 +377,24 @@ type session struct {
 	closeOnce  sync.Once
 }
 
+type inputSegment struct {
+	id            string
+	remainingText string
+	started       bool
+	isLast        bool
+}
+
 func newSession(cfg sessionConfig) *session {
 	return &session{
-		id:            cfg.id,
-		taskID:        cfg.taskID,
-		provider:      cfg.provider,
-		conn:          cfg.conn,
-		finishDelay:   cfg.finishDelay,
-		events:        make(chan *tts.ProviderEvent, 32),
-		done:          make(chan struct{}),
-		started:       make(chan struct{}),
-		startErr:      make(chan error, 1),
-		endedSegments: make(map[string]bool),
+		id:          cfg.id,
+		taskID:      cfg.taskID,
+		provider:    cfg.provider,
+		conn:        cfg.conn,
+		finishDelay: cfg.finishDelay,
+		events:      make(chan *tts.ProviderEvent, 32),
+		done:        make(chan struct{}),
+		started:     make(chan struct{}),
+		startErr:    make(chan error, 1),
 	}
 }
 
@@ -392,7 +402,13 @@ func (s *session) ID() string {
 	return s.id
 }
 
+func (s *session) SupportsPipelinedText() bool {
+	return true
+}
+
 func (s *session) AppendText(ctx context.Context, segment *tts.ProviderSegmentRequest) error {
+	s.inputMu.Lock()
+	defer s.inputMu.Unlock()
 	if segment == nil {
 		return &tts.Error{
 			Code:     tts.ErrInternal,
@@ -410,7 +426,7 @@ func (s *session) AppendText(ctx context.Context, segment *tts.ProviderSegmentRe
 	}
 
 	s.mu.Lock()
-	if s.closed {
+	if s.closed || s.finishing {
 		s.mu.Unlock()
 		return &tts.Error{
 			Code:      tts.ErrSessionClosed,
@@ -420,18 +436,12 @@ func (s *session) AppendText(ctx context.Context, segment *tts.ProviderSegmentRe
 			SegmentID: segmentID,
 		}
 	}
-	s.currentSegmentID = segmentID
-	s.currentSegmentEnded = false
-	s.audioSegmentQueue = append(s.audioSegmentQueue, segmentID)
-	s.mu.Unlock()
-
-	s.emit(&tts.ProviderEvent{
-		Type:           tts.ProviderEventSegmentStart,
-		Provider:       s.provider,
-		SessionID:      s.id,
-		SegmentID:      segmentID,
-		ProviderTaskID: s.taskID,
+	s.segments = append(s.segments, &inputSegment{
+		id:            segmentID,
+		remainingText: segmentText(segment.Text),
+		isLast:        segment.IsLast,
 	})
+	s.mu.Unlock()
 
 	msg := protocolMessage{
 		Header: protocolHeader{
@@ -471,14 +481,22 @@ func (s *session) AppendText(ctx context.Context, segment *tts.ProviderSegmentRe
 				return nil
 			}
 		}
-		return s.Finish(ctx)
+		return s.finish(ctx)
 	}
-	s.emitSegmentEnd(segmentID)
 	return nil
 }
 
 func (s *session) Finish(ctx context.Context) error {
+	s.inputMu.Lock()
+	defer s.inputMu.Unlock()
+	return s.finish(ctx)
+}
+
+func (s *session) finish(ctx context.Context) error {
 	s.finishOnce.Do(func() {
+		s.mu.Lock()
+		s.finishing = true
+		s.mu.Unlock()
 		msg := protocolMessage{
 			Header: protocolHeader{
 				Action:    "finish-task",
@@ -665,7 +683,7 @@ func (s *session) handleTextMessage(message []byte) bool {
 				Retryable: false,
 			})
 		}
-		s.emitSegmentEndIfNeeded()
+		s.finishSegments()
 		s.emit(&tts.ProviderEvent{
 			Type:           tts.ProviderEventSessionEnd,
 			Provider:       s.provider,
@@ -706,18 +724,17 @@ func (s *session) handleResultGenerated(msg protocolMessage) {
 	}
 	switch msg.Payload.Output.Type {
 	case "sentence-begin":
+		s.sentenceText = msg.Payload.Output.OriginalText
 		s.beginAudioSegment()
 	case "sentence-synthesis":
-		s.mu.Lock()
-		s.pendingAudioSegmentID = s.audioSegmentIDLocked()
-		s.mu.Unlock()
+		s.beginAudioSegment()
 	case "sentence-end":
-		if segmentID := s.currentAudioSegmentID(); segmentID != "" {
-			s.emitSegmentEnd(segmentID)
-		} else {
-			s.emitSegmentEndIfNeeded()
+		text := msg.Payload.Output.OriginalText
+		if text == "" {
+			text = s.sentenceText
 		}
-		s.clearAudioSegment()
+		s.completeSentence(text)
+		s.sentenceText = ""
 	}
 }
 
@@ -728,7 +745,11 @@ func (s *session) handleAudioMessage(message []byte) {
 	data := make([]byte, len(message))
 	copy(data, message)
 
-	segmentID := s.audioSegmentID()
+	segmentID := s.beginAudioSegment()
+	if segmentID == "" {
+		s.emitError("", "qwen audio received audio without a pending segment", nil, false)
+		return
+	}
 	s.emit(&tts.ProviderEvent{
 		Type:           tts.ProviderEventAudio,
 		Provider:       s.provider,
@@ -745,103 +766,105 @@ func (s *session) handleAudioMessage(message []byte) {
 	})
 }
 
-func (s *session) audioSegmentID() string {
+func (s *session) beginAudioSegment() string {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.pendingAudioSegmentID != "" {
-		segmentID := s.pendingAudioSegmentID
-		s.pendingAudioSegmentID = ""
-		s.lastSegmentID = segmentID
-		return segmentID
+	if len(s.segments) == 0 {
+		s.mu.Unlock()
+		return ""
 	}
-	if s.currentSegmentID != "" {
-		s.lastSegmentID = s.currentSegmentID
-		return s.currentSegmentID
+	segment := s.segments[0]
+	start := !segment.started
+	segment.started = true
+	s.mu.Unlock()
+	if start {
+		s.emitSegmentEvent(tts.ProviderEventSegmentStart, segment.id)
 	}
-	return s.lastSegmentID
+	return segment.id
 }
 
-func (s *session) beginAudioSegment() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.activeAudioSegmentID != "" {
+// A provider sentence can span input segments or cover only part of one.
+// Missing or transformed original_text is not proof that a segment has ended.
+func (s *session) completeSentence(text string) {
+	text = segmentText(text)
+	if text == "" {
 		return
 	}
-	if len(s.audioSegmentQueue) == 0 {
-		s.activeAudioSegmentID = s.currentSegmentID
-		return
-	}
-	s.activeAudioSegmentID = s.audioSegmentQueue[0]
-	s.audioSegmentQueue = s.audioSegmentQueue[1:]
-}
-
-func (s *session) clearAudioSegment() {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.activeAudioSegmentID != "" {
-		s.lastSegmentID = s.activeAudioSegmentID
+	remaining := text
+	for _, segment := range s.segments {
+		if strings.HasPrefix(segment.remainingText, remaining) {
+			remaining = ""
+			break
+		}
+		if !strings.HasPrefix(remaining, segment.remainingText) {
+			break
+		}
+		remaining = remaining[len(segment.remainingText):]
 	}
-	s.activeAudioSegmentID = ""
-	s.pendingAudioSegmentID = ""
-}
-
-func (s *session) currentAudioSegmentID() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.activeAudioSegmentID
-}
-
-func (s *session) audioSegmentIDLocked() string {
-	if s.activeAudioSegmentID != "" {
-		s.lastSegmentID = s.activeAudioSegmentID
-		return s.activeAudioSegmentID
-	}
-	if len(s.audioSegmentQueue) > 0 {
-		s.activeAudioSegmentID = s.audioSegmentQueue[0]
-		s.audioSegmentQueue = s.audioSegmentQueue[1:]
-		s.lastSegmentID = s.activeAudioSegmentID
-		return s.activeAudioSegmentID
-	}
-	if s.currentSegmentID != "" {
-		s.lastSegmentID = s.currentSegmentID
-		return s.currentSegmentID
-	}
-	return s.lastSegmentID
-}
-
-func (s *session) emitSegmentEndIfNeeded() {
-	s.mu.Lock()
-	segmentID := s.currentSegmentID
-	if segmentID == "" || s.currentSegmentEnded {
+	if remaining != "" {
 		s.mu.Unlock()
 		return
 	}
+	remaining = text
+	for _, segment := range s.segments {
+		n := min(len(segment.remainingText), len(remaining))
+		segment.remainingText = segment.remainingText[n:]
+		remaining = remaining[n:]
+		if remaining == "" {
+			break
+		}
+	}
+	var completed []*inputSegment
+	for len(s.segments) > 0 && s.segments[0].remainingText == "" {
+		segment := s.segments[0]
+		// Keep the final segment open for trailing Ogg pages until task-finished.
+		if len(s.segments) == 1 && (segment.isLast || s.finishing) {
+			break
+		}
+		completed = append(completed, segment)
+		s.segments[0] = nil
+		s.segments = s.segments[1:]
+	}
 	s.mu.Unlock()
-	s.emitSegmentEnd(segmentID)
+	for _, segment := range completed {
+		s.endSegment(segment)
+	}
 }
 
-func (s *session) emitSegmentEnd(segmentID string) {
+func (s *session) finishSegments() {
 	s.mu.Lock()
-	if segmentID == "" || s.endedSegments[segmentID] {
-		s.mu.Unlock()
-		return
-	}
-	s.endedSegments[segmentID] = true
-	if segmentID == s.currentSegmentID {
-		s.currentSegmentEnded = true
-		s.lastSegmentID = segmentID
-		s.currentSegmentID = ""
-	}
+	segments := s.segments
+	s.segments = nil
 	s.mu.Unlock()
+	for _, segment := range segments {
+		s.endSegment(segment)
+	}
+}
 
+func (s *session) endSegment(segment *inputSegment) {
+	if !segment.started {
+		s.emitSegmentEvent(tts.ProviderEventSegmentStart, segment.id)
+	}
+	s.emitSegmentEvent(tts.ProviderEventSegmentEnd, segment.id)
+}
+
+func (s *session) emitSegmentEvent(eventType tts.ProviderEventType, segmentID string) {
 	s.emit(&tts.ProviderEvent{
-		Type:           tts.ProviderEventSegmentEnd,
+		Type:           eventType,
 		Provider:       s.provider,
 		SessionID:      s.id,
 		SegmentID:      segmentID,
 		ProviderTaskID: s.taskID,
 	})
+}
+
+func segmentText(text string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsSpace(r) {
+			return -1
+		}
+		return r
+	}, text)
 }
 
 func (s *session) markClosed() {
@@ -931,7 +954,8 @@ type protocolParameters struct {
 }
 
 type protocolOutput struct {
-	Type string `json:"type,omitempty"`
+	Type         string `json:"type,omitempty"`
+	OriginalText string `json:"original_text,omitempty"`
 }
 
 func rawMeta(msg protocolMessage) map[string]any {
