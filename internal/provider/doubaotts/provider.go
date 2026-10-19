@@ -6,13 +6,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/caitunai/tts/internal/audio"
+	"github.com/caitunai/tts/internal/transport"
 	platformtts "github.com/caitunai/tts/internal/tts"
 	"github.com/gorilla/websocket"
 )
@@ -32,7 +32,9 @@ const (
 
 // Config configures a Doubao bidirectional WebSocket TTS provider.
 type Config struct {
-	Name string
+	Name      string
+	Timeouts  platformtts.TimeoutConfig
+	Reconnect platformtts.ReconnectConfig
 
 	Endpoint string
 	APIKey   string
@@ -55,7 +57,9 @@ type Config struct {
 // Provider adapts Doubao bidirectional WebSocket TTS to the TTS Provider
 // interface.
 type Provider struct {
-	name string
+	name      string
+	timeouts  platformtts.TimeoutConfig
+	reconnect platformtts.ReconnectConfig
 
 	endpoint  string
 	apiKey    string
@@ -75,6 +79,14 @@ type Provider struct {
 
 // NewProvider creates a Doubao TTS provider.
 func NewProvider(cfg Config) (*Provider, error) {
+	timeouts, err := transport.Resolve(cfg.Timeouts)
+	if err != nil {
+		return nil, err
+	}
+	reconnect, err := transport.ResolveReconnect(cfg.Reconnect)
+	if err != nil {
+		return nil, err
+	}
 	if cfg.Name == "" {
 		cfg.Name = defaultProviderName
 	}
@@ -95,6 +107,8 @@ func NewProvider(cfg Config) (*Provider, error) {
 	}
 
 	return &Provider{
+		timeouts:           timeouts,
+		reconnect:          reconnect,
 		name:               cfg.Name,
 		endpoint:           cfg.Endpoint,
 		apiKey:             cfg.APIKey,
@@ -173,20 +187,9 @@ func (p *Provider) OpenSession(ctx context.Context, req *platformtts.ProviderOpe
 	header.Set("X-Api-Resource-Id", resourceID)
 	header.Set("X-Api-Connect-Id", p.connectIDGenerator())
 
-	conn, resp, err := websocket.DefaultDialer.DialContext(ctx, p.endpoint, header)
+	conn, resp, err := transport.Dial(ctx, nil, p.endpoint, header, p.timeouts, p.reconnect)
 	if err != nil {
-		if resp != nil && resp.Body != nil {
-			body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-			_ = resp.Body.Close()
-			err = fmt.Errorf("%w: %s", err, string(body))
-		}
-		return nil, &platformtts.Error{
-			Code:      platformtts.ErrProviderUnavailable,
-			Message:   err.Error(),
-			Provider:  p.name,
-			Cause:     err,
-			Retryable: true,
-		}
+		return nil, transport.OpenError(err, resp, p.name)
 	}
 
 	sessionID := req.SessionID
@@ -211,10 +214,10 @@ func (p *Provider) OpenSession(ctx context.Context, req *platformtts.ProviderOpe
 	})
 	if err := session.start(ctx, voice, req.Language, req.GuidanceText); err != nil {
 		_ = session.Close()
-		return nil, err
+		return nil, transport.StartError(ctx, err, p.name, session.ID())
 	}
 	go session.readLoop()
-	return session, nil
+	return transport.GuardSession(ctx, session, conn, p.name, p.timeouts), nil
 }
 
 func (p *Provider) resourceIDForVoice(voice string) string {
@@ -375,7 +378,7 @@ func (s *realtimeSession) Close() error {
 		s.stopSegmentIdleTimerLocked()
 		s.mu.Unlock()
 		close(s.done)
-		_ = s.conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+		_ = s.conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(time.Second))
 		err = s.conn.Close()
 	})
 	return err

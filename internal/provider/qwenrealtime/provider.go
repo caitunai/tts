@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"sync"
@@ -14,6 +13,7 @@ import (
 
 	"github.com/caitunai/tts/internal/audio"
 	langnorm "github.com/caitunai/tts/internal/language"
+	"github.com/caitunai/tts/internal/transport"
 	"github.com/caitunai/tts/internal/tts"
 	"github.com/gorilla/websocket"
 )
@@ -37,7 +37,9 @@ const (
 
 // Config configures an Alibaba Cloud Qwen realtime WebSocket TTS provider.
 type Config struct {
-	Name string
+	Name      string
+	Timeouts  tts.TimeoutConfig
+	Reconnect tts.ReconnectConfig
 
 	Endpoint string
 	Token    string
@@ -51,7 +53,9 @@ type Config struct {
 // Provider adapts Qwen's realtime WebSocket TTS API to the TTS Provider
 // interface.
 type Provider struct {
-	name string
+	name      string
+	timeouts  tts.TimeoutConfig
+	reconnect tts.ReconnectConfig
 
 	endpoint string
 	token    string
@@ -64,6 +68,14 @@ type Provider struct {
 
 // NewProvider creates a Qwen realtime WebSocket TTS provider.
 func NewProvider(cfg Config) (*Provider, error) {
+	timeouts, err := transport.Resolve(cfg.Timeouts)
+	if err != nil {
+		return nil, err
+	}
+	reconnect, err := transport.ResolveReconnect(cfg.Reconnect)
+	if err != nil {
+		return nil, err
+	}
 	if cfg.Name == "" {
 		cfg.Name = defaultProviderName
 	}
@@ -89,6 +101,8 @@ func NewProvider(cfg Config) (*Provider, error) {
 	}
 
 	return &Provider{
+		timeouts:        timeouts,
+		reconnect:       reconnect,
 		name:            cfg.Name,
 		endpoint:        cfg.Endpoint,
 		token:           cfg.Token,
@@ -142,20 +156,9 @@ func (p *Provider) OpenSession(ctx context.Context, req *tts.ProviderOpenSession
 	if p.token != "" {
 		header.Set("Authorization", "Bearer "+p.token)
 	}
-	conn, resp, err := websocket.DefaultDialer.DialContext(ctx, p.realtimeURL(), header)
+	conn, resp, err := transport.Dial(ctx, nil, p.realtimeURL(), header, p.timeouts, p.reconnect)
 	if err != nil {
-		if resp != nil && resp.Body != nil {
-			body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-			_ = resp.Body.Close()
-			err = fmt.Errorf("%w: %s", err, string(body))
-		}
-		return nil, &tts.Error{
-			Code:      tts.ErrProviderUnavailable,
-			Message:   err.Error(),
-			Provider:  p.name,
-			Cause:     err,
-			Retryable: true,
-		}
+		return nil, transport.OpenError(err, resp, p.name)
 	}
 
 	sessionID := req.SessionID
@@ -177,9 +180,9 @@ func (p *Provider) OpenSession(ctx context.Context, req *tts.ProviderOpenSession
 		instructions: req.GuidanceText,
 	}); err != nil {
 		_ = session.Close()
-		return nil, err
+		return nil, transport.StartError(ctx, err, p.name, session.ID())
 	}
-	return session, nil
+	return transport.GuardSession(ctx, session, conn, p.name, p.timeouts), nil
 }
 
 func (p *Provider) realtimeURL() string {

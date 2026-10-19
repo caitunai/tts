@@ -226,6 +226,88 @@ session, err := service.OpenSession(ctx, &tts.OpenSessionRequest{
 })
 ```
 
+## Timeouts And Reconnection
+
+所有 HTTP 和 WebSocket Provider 的 `Config` 都支持 `Timeouts tts.TimeoutConfig`。
+不配置时也有有限超时，不再依赖应用一定传入带 deadline 的 context。
+零值使用默认值，负值配置会被拒绝。
+
+| 配置 | 默认值 | 作用 |
+| --- | --- | --- |
+| `RequestTimeout` | 60 秒 | 每次 HTTP 请求，包含读取响应体；音频 URL 下载独立计时 |
+| `ConnectTimeout` | 10 秒 | 默认 HTTP TCP/TLS 连接及每次 WebSocket 握手 |
+| `OpenTimeout` | 15 秒 | WebSocket 建连重试与同步协议初始化；默认 HTTP transport 的响应头等待 |
+| `ReadTimeout` | 30 秒 | HTTP 响应体 / WebSocket 底层读取无新数据 |
+| `WriteTimeout` | 10 秒 | WebSocket 写操作 |
+| `SegmentTimeout` | 120 秒 | WebSocket 分段自发送至 `segment_end`，不会被心跳或音频块续期 |
+| `FinishTimeout` | 15 秒 | Finish 后所有待合成分段结束，再等待 `session_end` 的时间 |
+
+HTTP 自定义 `resty.Client` 不会被修改，但仍有单次请求 context 超时和响应体读超时。
+自定义 transport/dialer 必须自行保证建连操作响应 context；已有的更短 deadline 仍优先。
+`OpenTimeout` 的 HTTP 响应头限制只应用于平台新建的默认 transport。
+HTTP 不自动重试合成 POST 请求。
+
+```go
+p, err := qwenaudio.NewProvider(qwenaudio.Config{
+	Endpoint:     os.Getenv("QWEN_AUDIO_TTS_ENDPOINT"),
+	APIKey:       os.Getenv("DASHSCOPE_API_KEY"),
+	DefaultVoice: "longanhuan_v3.1",
+	Model:        qwenaudio.ModelQwenAudio31TTSFlash,
+	Timeouts: tts.TimeoutConfig{
+		ReadTimeout:    20 * time.Second,
+		WriteTimeout:   5 * time.Second,
+		SegmentTimeout: 90 * time.Second,
+	},
+	Reconnect: tts.ReconnectConfig{
+		MaxAttempts:    3, // 包含第一次连接；设为 1 禁止重试
+		InitialBackoff: 200 * time.Millisecond,
+		MaxBackoff:     2 * time.Second,
+	},
+})
+```
+
+WebSocket 默认最多尝试建连 3 次，退避从约 200ms 开始，指数增长并加入抖动，最大
+2 秒，整个建连过程受 `OpenTimeout` 限制。仅网络瞬态故障、HTTP 429/5xx 等建连失败
+可重试；鉴权失败和普通 4xx 不重试。WebSocket 已连接后，协议初始化或合成失败不会
+自动重放 `run-task`、`AppendText`、commit 或 finish 消息。
+
+WebSocket 超时后旧连接不可复用，会返回 `ErrProviderTimeout` 并关闭 Session。
+连接级错误不会再推进队列，把下一段文本发到失效连接上。
+`Error.Reconnectable` 表示应用可以新建 Session；**不代表可以自动重播当前分段**。
+`Error.PartialAudio` 表示该分段已经交付过上游音频块（可能包括容器头），此时
+`Retryable=false`，避免应用自动重试造成重复播报。即便尚未收到音频，文本也可能已经
+被上游接受，因此平台一律不自动重新合成已发送文本。
+
+应用收到 `EventError` 后可调用下面的函数。取得新 Session 后需要切换到新的
+`Events()` channel，只发送后续明确需要合成的新文本；不要自动迁移旧 Session 的队列。
+Session 的并发读写和替换应由应用的同一个调度循环协调。
+
+```go
+func reopenSession(ctx context.Context, service tts.Service, old tts.Session,
+	req tts.OpenSessionRequest, failure *tts.Error) (tts.Session, error) {
+	if old != nil {
+		_ = old.Close()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if failure == nil {
+		return nil, fmt.Errorf("missing session failure")
+	}
+	if !failure.Reconnectable {
+		return nil, failure
+	}
+	req.SessionID = "" // 新连接、新任务；不重放旧任务
+	return service.OpenSession(ctx, &req)
+}
+```
+
+`OpenSession` 的 context 控制整个 Session 生命周期，返回后不要立即取消；应用退出或
+放弃事件流时，应取消 context 或调用 `Close`。`AppendText` 的 context 用于本次提交，
+整个合成分段的完成等待由 `SegmentTimeout` 限制。
+WebSocket 空闲时也受读超时影响，长时间没有服务端消息会断开；需要跨轮次长时间等待的
+应用应按需新建 Session 或调大 `ReadTimeout`，不能在收到超时后继续使用原连接。
+
 ## Output Modes
 
 不同 Provider 的上游格式不同，平台会尽量统一为应用层要求的输出。

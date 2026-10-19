@@ -2,8 +2,10 @@ package qwenaudiotts
 
 import (
 	"bytes"
+	"context"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -12,6 +14,148 @@ import (
 	"github.com/caitunai/tts/internal/tts"
 	"github.com/gorilla/websocket"
 )
+
+func TestOpenTimeoutIsNotExtendedByServerMessages(t *testing.T) {
+	upgrader := websocket.Upgrader{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		ticker := time.NewTicker(5 * time.Millisecond)
+		defer ticker.Stop()
+		for range ticker.C {
+			if err := conn.WriteJSON(protocolMessage{Header: protocolHeader{Event: "heartbeat"}}); err != nil {
+				return
+			}
+		}
+	}))
+	defer server.Close()
+	p, err := NewProvider(Config{Endpoint: wsURL(server.URL),
+		Timeouts: tts.TimeoutConfig{OpenTimeout: 40 * time.Millisecond, ReadTimeout: time.Second}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	_, err = p.OpenSession(ctx, &tts.ProviderOpenSessionRequest{})
+	failure, ok := err.(*tts.Error)
+	if !ok || failure.Code != tts.ErrProviderTimeout || ctx.Err() != nil {
+		t.Fatalf("OpenSession error = %#v", err)
+	}
+}
+
+func TestApplicationReopensSessionWithoutReplayingText(t *testing.T) {
+	ogg := oggChunk(t, []byte{0xf8, 0xff, 0xfe})
+	var connections atomic.Int32
+	texts := make(chan string, 4)
+	tasks := make(chan string, 4)
+	upgrader := websocket.Upgrader{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		attempt := connections.Add(1)
+		_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+		for {
+			var msg protocolMessage
+			if err := conn.ReadJSON(&msg); err != nil {
+				return
+			}
+			switch msg.Header.Action {
+			case "run-task":
+				tasks <- msg.Header.TaskID
+				writeProtocol(t, conn, "task-started", "")
+			case "continue-task":
+				text, _ := msg.Payload.Input["text"].(string)
+				texts <- text
+				writeProtocol(t, conn, "result-generated", "sentence-begin", text)
+				writeProtocol(t, conn, "result-generated", "sentence-synthesis")
+				if err := conn.WriteMessage(websocket.BinaryMessage, ogg); err != nil {
+					return
+				}
+				if attempt == 1 {
+					return
+				} // Disconnect after audio, before completion.
+				writeProtocol(t, conn, "result-generated", "sentence-end", text)
+			case "finish-task":
+				writeProtocol(t, conn, "task-finished", "")
+				return
+			}
+		}
+	}))
+	defer server.Close()
+	p, err := NewProvider(Config{Endpoint: wsURL(server.URL)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry := registryprovider.NewRegistry()
+	if err := registry.Register(p); err != nil {
+		t.Fatal(err)
+	}
+	service := tts.NewService("test", registry)
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancel()
+	first, err := service.OpenSession(ctx, &tts.OpenSessionRequest{Provider: p.Name(), SessionID: "first"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first.Close()
+	events := first.Events()
+	if err := first.AppendText(ctx, &tts.SegmentRequest{SegmentID: "old", Text: "old text"}); err != nil {
+		t.Fatal(err)
+	}
+	var failure *tts.Error
+	for event := range events {
+		if event.Type == tts.EventError {
+			failure = event.Error
+		}
+	}
+	if failure == nil || !failure.Reconnectable || !failure.PartialAudio || failure.Retryable {
+		t.Fatalf("failure = %#v", failure)
+	}
+	_ = first.Close()
+	second, err := service.OpenSession(ctx, &tts.OpenSessionRequest{Provider: p.Name(), SessionID: "second"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer second.Close()
+	events = second.Events()
+	if err := second.AppendText(ctx, &tts.SegmentRequest{SegmentID: "new", Text: "new text", IsLast: true}); err != nil {
+		t.Fatal(err)
+	}
+	ended := false
+	for event := range events {
+		if event.Type == tts.EventError {
+			t.Fatal(event.Error)
+		}
+		if event.Type == tts.EventSessionEnd {
+			ended = true
+		}
+	}
+	if !ended || connections.Load() != 2 {
+		t.Fatalf("ended=%v connections=%d", ended, connections.Load())
+	}
+	for _, want := range []string{"old text", "new text"} {
+		select {
+		case got := <-texts:
+			if got != want {
+				t.Fatalf("text=%q, want %q", got, want)
+			}
+		default:
+			t.Fatalf("missing %q", want)
+		}
+	}
+	if len(texts) != 0 {
+		t.Fatal("previously sent text was replayed")
+	}
+	if firstID, secondID := <-tasks, <-tasks; firstID == secondID {
+		t.Fatal("new session reused a failed provider task")
+	}
+}
 
 func TestServiceSendsBufferedTextBeforeSegmentEnd(t *testing.T) {
 	for _, isLast := range []bool{false, true} {

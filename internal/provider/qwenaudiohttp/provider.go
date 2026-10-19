@@ -18,6 +18,7 @@ import (
 
 	"github.com/caitunai/tts/internal/audio"
 	langnorm "github.com/caitunai/tts/internal/language"
+	"github.com/caitunai/tts/internal/transport"
 	"github.com/caitunai/tts/internal/tts"
 	"github.com/go-resty/resty/v2"
 )
@@ -32,6 +33,7 @@ const (
 // Config selects HTTP SSE (the default) or non-streaming JSON synthesis.
 // Both modes request Ogg Opus at 48 kHz; the platform emits raw Opus packets.
 type Config struct {
+	Timeouts            tts.TimeoutConfig
 	Name                string
 	Endpoint            string
 	APIKey              string
@@ -53,6 +55,11 @@ type Provider struct {
 }
 
 func NewProvider(cfg Config) (*Provider, error) {
+	timeouts, err := transport.Resolve(cfg.Timeouts)
+	if err != nil {
+		return nil, err
+	}
+	cfg.Timeouts = timeouts
 	cfg.Name = cmp.Or(cfg.Name, ProviderName)
 	if err := validateURL(cfg.Endpoint); err != nil {
 		return nil, &tts.Error{Code: tts.ErrUnsupportedProvider, Provider: cfg.Name,
@@ -64,12 +71,8 @@ func NewProvider(cfg Config) (*Provider, error) {
 		return nil, &tts.Error{Code: tts.ErrUnsupportedProvider, Provider: cfg.Name,
 			Message: "qwen audio HTTP bit rate must be between 6 and 510 kbps"}
 	}
-	if cfg.Client == nil {
-		cfg.Client = resty.New()
-	}
-	if cfg.AudioClient == nil {
-		cfg.AudioClient = resty.New()
-	}
+	cfg.Client = transport.HTTPClient(cfg.Client, timeouts)
+	cfg.AudioClient = transport.HTTPClient(cfg.AudioClient, timeouts)
 	return &Provider{cfg: cfg}, nil
 }
 
@@ -118,6 +121,7 @@ func (p *Provider) SynthesizeOnce(ctx context.Context, req *tts.ProviderSynthesi
 			if !ok {
 				failure = p.failure(tts.ErrProviderUnavailable, "qwen audio HTTP: "+err.Error(), err)
 			}
+			failure = tts.NormalizeError(failure)
 			failure.SegmentID = s.segmentID
 			s.emit(ctx, &tts.ProviderEvent{Type: tts.ProviderEventError, Error: failure})
 		}
@@ -226,7 +230,9 @@ type synthesis struct {
 
 func (s *synthesis) run(ctx context.Context, body []byte) error {
 	p := s.provider
-	request := p.cfg.Client.R().SetContext(ctx).SetDoNotParseResponse(true).
+	requestCtx, cancel := transport.RequestContext(ctx, p.cfg.Timeouts)
+	defer cancel()
+	request := p.cfg.Client.R().SetContext(requestCtx).SetDoNotParseResponse(true).
 		SetHeader("Content-Type", "application/json").SetBody(body)
 	if p.cfg.NonStreaming {
 		request.SetHeader("Accept", "application/json").SetHeader("X-DashScope-SSE", "")
@@ -237,6 +243,7 @@ func (s *synthesis) run(ctx context.Context, body []byte) error {
 		request.SetHeader("Authorization", auth)
 	}
 	resp, err := request.Post(p.cfg.Endpoint)
+	transport.GuardHTTPBody(resp, p.cfg.Timeouts)
 	if resp != nil && resp.RawBody() != nil {
 		defer resp.RawBody().Close()
 	}
@@ -365,7 +372,10 @@ func (s *synthesis) download(ctx context.Context, result *responseBody) error {
 	if err := validateURL(result.Output.Audio.URL); err != nil {
 		return fmt.Errorf("invalid qwen audio download URL: %w", err)
 	}
-	resp, err := s.provider.cfg.AudioClient.R().SetContext(ctx).SetDoNotParseResponse(true).Get(result.Output.Audio.URL)
+	requestCtx, cancel := transport.RequestContext(ctx, s.provider.cfg.Timeouts)
+	defer cancel()
+	resp, err := s.provider.cfg.AudioClient.R().SetContext(requestCtx).SetDoNotParseResponse(true).Get(result.Output.Audio.URL)
+	transport.GuardHTTPBody(resp, s.provider.cfg.Timeouts)
 	if resp != nil && resp.RawBody() != nil {
 		defer resp.RawBody().Close()
 	}

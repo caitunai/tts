@@ -679,6 +679,15 @@ SupportsConcurrentSegments bool
 
 ## 5.5 Event Channel 生命周期与背压
 
+网络请求必须有平台默认的有限超时，调用方 `context.Background()` 不能使网络等待无限持续。
+所有 Provider 统一使用可配置的 `TimeoutConfig`，区分连接、HTTP 整体请求、读写空闲、
+WebSocket 分段完成及最后的 Session 结束等待。心跳等网络活动不能无限延长分段完成期限。
+
+WebSocket 仅在尚未完成握手、未发送业务文本时有限重试建连。连接建立后的合成消息不自动
+重放；超时或连接级错误会关闭旧 Session 并停止推进待发送队列。应用根据
+`Error.Reconnectable` 创建新的 Session，仅发送后续新文本；已发送或部分输出音频的分段
+是否重新合成，由应用显式决定。`Error.PartialAudio` 用于标识已经交付音频的分段。
+
 `SynthesizeOnce` 和 `Events()` 返回的 channel 必须遵守统一生命周期。
 
 ```text

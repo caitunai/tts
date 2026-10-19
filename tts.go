@@ -35,6 +35,8 @@ type ProviderAudioChunk = internal.ProviderAudioChunk
 
 type ErrorCode = internal.ErrorCode
 type Error = internal.Error
+type TimeoutConfig = internal.TimeoutConfig
+type ReconnectConfig = internal.ReconnectConfig
 
 type SessionState = internal.SessionState
 type SegmentState = internal.SegmentState
@@ -114,6 +116,8 @@ const (
 func NewService(name string, registry ProviderRegistry) *DefaultService {
 	return internal.NewService(name, registry)
 }
+
+func DefaultTimeoutConfig() TimeoutConfig { return internal.DefaultTimeoutConfig() }
 
 func NormalizeLanguage(input string) string {
 	return internal.NormalizeLanguage(input)

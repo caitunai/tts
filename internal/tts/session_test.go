@@ -114,6 +114,32 @@ func TestSessionRejectsAppendAfterFinish(t *testing.T) {
 	requireTTSErrorCode(t, err, ErrSessionClosed)
 }
 
+func TestSessionConnectionFailureDoesNotSendQueuedText(t *testing.T) {
+	provider := newControlledProviderSession("session")
+	session := newProviderBackedSession("mock", audio.OutputConfig{}, provider)
+	events := session.Events()
+	for _, id := range []string{"one", "two"} {
+		if err := session.AppendText(t.Context(), &SegmentRequest{SegmentID: id, Text: id}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	provider.requireSent(t, "one")
+	provider.emit(&ProviderEvent{Type: ProviderEventError, SegmentID: "one", Error: &Error{
+		Code: ErrProviderTimeout, Message: "connection timed out", Reconnectable: true,
+	}})
+	requireEvent(t, events, EventError, "one")
+	if _, ok := <-events; ok {
+		t.Fatal("event channel should close after a connection-level error")
+	}
+	provider.requireNoExtraSent(t)
+	if provider.closeCalls != 1 {
+		t.Fatalf("provider close calls = %d", provider.closeCalls)
+	}
+	if err := session.AppendText(t.Context(), &SegmentRequest{Text: "later"}); err == nil {
+		t.Fatal("failed session accepted new text")
+	}
+}
+
 func TestSessionCloseIsIdempotent(t *testing.T) {
 	providerSession := newControlledProviderSession("sess")
 	session := newProviderBackedSession("mock", audio.OutputConfig{}, providerSession)

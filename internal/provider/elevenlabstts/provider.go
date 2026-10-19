@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -12,6 +11,7 @@ import (
 	"time"
 
 	"github.com/caitunai/tts/internal/audio"
+	"github.com/caitunai/tts/internal/transport"
 	"github.com/caitunai/tts/internal/tts"
 	"github.com/gorilla/websocket"
 )
@@ -27,7 +27,9 @@ const (
 
 // Config configures an ElevenLabs realtime WebSocket TTS provider.
 type Config struct {
-	Name string
+	Name      string
+	Timeouts  tts.TimeoutConfig
+	Reconnect tts.ReconnectConfig
 
 	Endpoint string
 	APIKey   string
@@ -45,7 +47,9 @@ type Config struct {
 // Provider adapts ElevenLabs realtime WebSocket TTS to the TTS Provider
 // interface.
 type Provider struct {
-	name string
+	name      string
+	timeouts  tts.TimeoutConfig
+	reconnect tts.ReconnectConfig
 
 	endpoint string
 	apiKey   string
@@ -62,6 +66,14 @@ type Provider struct {
 
 // NewProvider creates an ElevenLabs realtime TTS provider.
 func NewProvider(cfg Config) (*Provider, error) {
+	timeouts, err := transport.Resolve(cfg.Timeouts)
+	if err != nil {
+		return nil, err
+	}
+	reconnect, err := transport.ResolveReconnect(cfg.Reconnect)
+	if err != nil {
+		return nil, err
+	}
 	if cfg.Name == "" {
 		cfg.Name = defaultProviderName
 	}
@@ -89,6 +101,8 @@ func NewProvider(cfg Config) (*Provider, error) {
 	}
 
 	return &Provider{
+		timeouts:        timeouts,
+		reconnect:       reconnect,
 		name:            cfg.Name,
 		endpoint:        cfg.Endpoint,
 		apiKey:          cfg.APIKey,
@@ -155,20 +169,9 @@ func (p *Provider) OpenSession(ctx context.Context, req *tts.ProviderOpenSession
 	if p.apiKey != "" {
 		header.Set("xi-api-key", p.apiKey)
 	}
-	conn, resp, err := websocket.DefaultDialer.DialContext(ctx, realtimeURL, header)
+	conn, resp, err := transport.Dial(ctx, nil, realtimeURL, header, p.timeouts, p.reconnect)
 	if err != nil {
-		if resp != nil && resp.Body != nil {
-			body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-			_ = resp.Body.Close()
-			err = fmt.Errorf("%w: %s", err, string(body))
-		}
-		return nil, &tts.Error{
-			Code:      tts.ErrProviderUnavailable,
-			Message:   err.Error(),
-			Provider:  p.name,
-			Cause:     err,
-			Retryable: true,
-		}
+		return nil, transport.OpenError(err, resp, p.name)
 	}
 
 	sessionID := req.SessionID
@@ -190,10 +193,10 @@ func (p *Provider) OpenSession(ctx context.Context, req *tts.ProviderOpenSession
 	})
 	if err := session.start(ctx); err != nil {
 		_ = session.Close()
-		return nil, err
+		return nil, transport.StartError(ctx, err, p.name, session.ID())
 	}
 	go session.readLoop()
-	return session, nil
+	return transport.GuardSession(ctx, session, conn, p.name, p.timeouts), nil
 }
 
 func (p *Provider) realtimeURL(voice string) (string, error) {

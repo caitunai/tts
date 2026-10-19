@@ -3,12 +3,12 @@ package fishaudiotts
 import (
 	"context"
 	"fmt"
-	"io"
 	"net/http"
 	"sync"
 	"time"
 
 	"github.com/caitunai/tts/internal/audio"
+	"github.com/caitunai/tts/internal/transport"
 	"github.com/caitunai/tts/internal/tts"
 	"github.com/gorilla/websocket"
 )
@@ -25,7 +25,9 @@ const (
 
 // Config configures Fish Audio's WebSocket TTS provider.
 type Config struct {
-	Name string
+	Name      string
+	Timeouts  tts.TimeoutConfig
+	Reconnect tts.ReconnectConfig
 
 	Endpoint string
 	APIKey   string
@@ -55,7 +57,9 @@ type Config struct {
 // Provider adapts Fish Audio's MessagePack WebSocket TTS API to the TTS
 // Provider interface.
 type Provider struct {
-	name string
+	name      string
+	timeouts  tts.TimeoutConfig
+	reconnect tts.ReconnectConfig
 
 	endpoint string
 	apiKey   string
@@ -84,6 +88,14 @@ type Provider struct {
 
 // NewProvider creates a Fish Audio TTS provider.
 func NewProvider(cfg Config) (*Provider, error) {
+	timeouts, err := transport.Resolve(cfg.Timeouts)
+	if err != nil {
+		return nil, err
+	}
+	reconnect, err := transport.ResolveReconnect(cfg.Reconnect)
+	if err != nil {
+		return nil, err
+	}
 	if cfg.Name == "" {
 		cfg.Name = defaultProviderName
 	}
@@ -111,6 +123,8 @@ func NewProvider(cfg Config) (*Provider, error) {
 	}
 
 	return &Provider{
+		timeouts:                  timeouts,
+		reconnect:                 reconnect,
 		name:                      cfg.Name,
 		endpoint:                  cfg.Endpoint,
 		apiKey:                    cfg.APIKey,
@@ -181,20 +195,9 @@ func (p *Provider) OpenSession(ctx context.Context, req *tts.ProviderOpenSession
 	if p.model != "" {
 		header.Set("model", p.model)
 	}
-	conn, resp, err := websocket.DefaultDialer.DialContext(ctx, p.endpoint, header)
+	conn, resp, err := transport.Dial(ctx, nil, p.endpoint, header, p.timeouts, p.reconnect)
 	if err != nil {
-		if resp != nil && resp.Body != nil {
-			body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-			_ = resp.Body.Close()
-			err = fmt.Errorf("%w: %s", err, string(body))
-		}
-		return nil, &tts.Error{
-			Code:      tts.ErrProviderUnavailable,
-			Message:   err.Error(),
-			Provider:  p.name,
-			Cause:     err,
-			Retryable: true,
-		}
+		return nil, transport.OpenError(err, resp, p.name)
 	}
 
 	sessionID := req.SessionID
@@ -227,10 +230,10 @@ func (p *Provider) OpenSession(ctx context.Context, req *tts.ProviderOpenSession
 	})
 	if err := session.start(ctx); err != nil {
 		_ = session.Close()
-		return nil, err
+		return nil, transport.StartError(ctx, err, p.name, session.ID())
 	}
 	go session.readLoop()
-	return session, nil
+	return transport.GuardSession(ctx, session, conn, p.name, p.timeouts), nil
 }
 
 type realtimeSessionConfig struct {
@@ -404,7 +407,7 @@ func (s *realtimeSession) Close() error {
 		s.stopSegmentIdleTimerLocked()
 		s.mu.Unlock()
 		close(s.done)
-		_ = s.conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+		_ = s.conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(time.Second))
 		err = s.conn.Close()
 	})
 	return err

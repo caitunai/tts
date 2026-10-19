@@ -9,6 +9,7 @@ import (
 
 	"github.com/caitunai/tts/internal/audio"
 	langnorm "github.com/caitunai/tts/internal/language"
+	"github.com/caitunai/tts/internal/transport"
 	"github.com/caitunai/tts/internal/tts"
 	"github.com/go-resty/resty/v2"
 )
@@ -23,7 +24,8 @@ const (
 
 // Config configures a vLLM TTS provider.
 type Config struct {
-	Name string
+	Name     string
+	Timeouts tts.TimeoutConfig
 
 	Endpoint string
 	Token    string
@@ -39,7 +41,8 @@ type Config struct {
 // Provider adapts a vLLM-compatible chunked PCM TTS endpoint to the TTS Provider
 // interface.
 type Provider struct {
-	name string
+	name     string
+	timeouts tts.TimeoutConfig
 
 	endpoint string
 	token    string
@@ -54,6 +57,10 @@ type Provider struct {
 
 // NewProvider creates a vLLM TTS provider.
 func NewProvider(cfg Config) (*Provider, error) {
+	timeouts, err := transport.Resolve(cfg.Timeouts)
+	if err != nil {
+		return nil, err
+	}
 	if cfg.Name == "" {
 		cfg.Name = defaultProviderName
 	}
@@ -77,11 +84,10 @@ func NewProvider(cfg Config) (*Provider, error) {
 			Provider: cfg.Name,
 		}
 	}
-	if cfg.Client == nil {
-		cfg.Client = resty.New()
-	}
+	cfg.Client = transport.HTTPClient(cfg.Client, timeouts)
 
 	return &Provider{
+		timeouts:        timeouts,
 		name:            cfg.Name,
 		endpoint:        cfg.Endpoint,
 		token:           cfg.Token,
@@ -143,8 +149,14 @@ func (p *Provider) stream(ctx context.Context, req *tts.ProviderSynthesizeReques
 		segmentID = req.RequestID
 	}
 
-	resp, err := p.doRequest(ctx, req)
+	requestCtx, cancel := transport.RequestContext(ctx, p.timeouts)
+	defer cancel()
+	resp, err := p.doRequest(requestCtx, req)
+	transport.GuardHTTPBody(resp, p.timeouts)
 	if err != nil {
+		if resp != nil && resp.RawBody() != nil {
+			_ = resp.RawBody().Close()
+		}
 		events <- p.errorEvent(req, segmentID, &tts.Error{
 			Code:      tts.ErrProviderUnavailable,
 			Message:   err.Error(),
@@ -262,7 +274,7 @@ func (p *Provider) errorEvent(req *tts.ProviderSynthesizeRequest, segmentID stri
 		Provider:  p.name,
 		RequestID: req.RequestID,
 		SegmentID: segmentID,
-		Error:     errorToTTSError(err, p.name, segmentID),
+		Error:     tts.NormalizeError(errorToTTSError(err, p.name, segmentID)),
 	}
 }
 

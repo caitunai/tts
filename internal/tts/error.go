@@ -40,6 +40,12 @@ type Error struct {
 	Cause error
 
 	Retryable bool
+
+	// Reconnectable permits opening a NEW session, not replaying sent text.
+	Reconnectable bool
+	// PartialAudio means this segment already emitted audio; do not retry it
+	// automatically, even when a new connection can be established.
+	PartialAudio bool
 }
 
 func (e *Error) Error() string {

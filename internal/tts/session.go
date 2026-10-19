@@ -186,6 +186,10 @@ func (s *providerBackedSession) forwardEvents() {
 					return
 				}
 			}
+			if terminalProviderError(event) {
+				_ = s.provider.Close()
+				return
+			}
 
 			if next != nil {
 				if err := s.sendQueuedSegment(context.Background(), next); err != nil {
@@ -255,6 +259,17 @@ func (s *providerBackedSession) applyProviderEvent(event *ProviderEvent) (*Segme
 	case ProviderEventSegmentEnd:
 		return s.completeActiveLocked(event.SegmentID, SegmentStateEnded)
 	case ProviderEventError:
+		if terminalProviderError(event) {
+			s.closed = true
+			s.state = SessionStateFailed
+			s.queue = nil
+			for id, state := range s.segments {
+				if state != SegmentStateEnded {
+					s.segments[id] = SegmentStateFailed
+				}
+			}
+			return nil, false
+		}
 		if event.SegmentID != "" || s.activeID != "" {
 			return s.completeActiveLocked(event.SegmentID, SegmentStateFailed)
 		}
@@ -265,6 +280,17 @@ func (s *providerBackedSession) applyProviderEvent(event *ProviderEvent) (*Segme
 	}
 
 	return nil, false
+}
+
+func terminalProviderError(event *ProviderEvent) bool {
+	if event == nil || event.Type != ProviderEventError || event.Error == nil {
+		return false
+	}
+	switch event.Error.Code {
+	case ErrProviderTimeout, ErrProviderUnavailable, ErrProviderAuthFailed, ErrProviderRateLimited:
+		return true
+	}
+	return event.Error.Reconnectable
 }
 
 func (s *providerBackedSession) completeActiveLocked(segmentID string, state SegmentState) (*SegmentRequest, bool) {
